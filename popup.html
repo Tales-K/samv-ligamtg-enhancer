@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SAMV LigaMtg Enhancer</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      width: 640px;
+      background: #1a1a2e;
+      color: #e0e0e0;
+    }
+
+    /* ── Header ──────────────────────────────────────────── */
+    header {
+      padding: 14px 16px;
+      border-bottom: 1px solid #2d2d4e;
+    }
+
+    h1 {
+      font-size: 13px;
+      font-weight: 700;
+      color: #a78bfa;
+      letter-spacing: 0.5px;
+    }
+
+    /* ── Price tracker (moved to the bottom) ──────────────── */
+    .tracker-section {
+      border-top: 1px solid #2d2d4e;
+      padding-top: 4px;
+    }
+
+    .stats-bar {
+      display: flex;
+      gap: 8px;
+      margin: 10px 16px;
+    }
+
+    .stat-chip {
+      flex: 1;
+      background: #16213e;
+      border: 1px solid #2d2d4e;
+      border-radius: 8px;
+      padding: 6px 10px;
+      text-align: center;
+    }
+
+    .stat-chip .stat-value {
+      font-size: 20px;
+      font-weight: 700;
+      color: #c4b5fd;
+      line-height: 1;
+    }
+
+    .stat-chip .stat-label {
+      font-size: 10px;
+      color: #6b7280;
+      margin-top: 2px;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+    }
+
+    /* ── Today's list ────────────────────────────────────── */
+    .section-title {
+      font-size: 10px;
+      font-weight: 600;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 10px 16px 4px;
+    }
+
+    .scroll-list {
+      max-height: 220px;
+      overflow-y: auto;
+      padding: 0 16px 14px;
+      scrollbar-width: thin; /* Firefox */
+      scrollbar-color: #6d4fc4 #16213e; /* Firefox: thumb, track */
+    }
+
+    .scroll-list::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    .scroll-list::-webkit-scrollbar-track {
+      background: #16213e;
+      border-radius: 8px;
+    }
+
+    .scroll-list::-webkit-scrollbar-thumb {
+      background: #6d4fc4;
+      border-radius: 8px;
+      border: 2px solid #16213e;
+      background-clip: padding-box;
+    }
+
+    .scroll-list::-webkit-scrollbar-thumb:hover {
+      background: #a78bfa;
+      background-clip: padding-box;
+    }
+
+    #todayList .card-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding: 5px 0;
+      border-bottom: 1px solid #1f1f3a;
+      gap: 6px;
+    }
+
+    #todayList .card-item:last-child { border-bottom: none; }
+
+    #todayList .card-name {
+      color: #c4b5fd;
+      font-size: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 190px;
+    }
+
+    #todayList .card-meta {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      flex-shrink: 0;
+    }
+
+    #todayList .card-price {
+      color: #86efac;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    #todayList .card-time {
+      color: #4b5563;
+      font-size: 10px;
+    }
+
+    .empty-msg {
+      color: #4b5563;
+      font-size: 12px;
+      font-style: italic;
+      padding: 6px 0;
+    }
+
+    /* ── Lojas conhecidas ────────────────────────────────── */
+    #knownStoresList .store-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 5px 0;
+      border-bottom: 1px solid #1f1f3a;
+      gap: 6px;
+    }
+
+    #knownStoresList .store-item:last-child { border-bottom: none; }
+
+    #knownStoresList .store-name {
+      color: #c4b5fd;
+      font-size: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 190px;
+    }
+
+    #knownStoresList .store-meta {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    #knownStoresList .store-domain {
+      color: #6b7280;
+      font-size: 10px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 140px;
+    }
+
+    #knownStoresList .store-domain.unresolved {
+      font-style: italic;
+      color: #4b5563;
+    }
+
+    #knownStoresList .store-remove {
+      background: none;
+      border: none;
+      color: #4b5563;
+      cursor: pointer;
+      font-size: 14px;
+      line-height: 1;
+      padding: 2px 5px;
+      border-radius: 5px;
+      flex-shrink: 0;
+    }
+
+    #knownStoresList .store-remove:hover {
+      color: #fca5a5;
+      background: #2d1b1b;
+    }
+
+    /* ── Settings ────────────────────────────────────── */
+    .settings-section {
+      padding: 10px 16px 14px;
+      border-top: 1px solid #2d2d4e;
+    }
+
+    .settings-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px 16px;
+    }
+
+    .settings-card {
+      background: #16213e;
+      border: 1px solid #2d2d4e;
+      border-radius: 8px;
+      padding: 10px 12px 12px;
+    }
+
+    .settings-card-full {
+      grid-column: 1 / -1;
+    }
+
+    .settings-card .section-title {
+      padding: 0 0 4px;
+    }
+
+    .settings-group {
+      margin-top: 8px;
+    }
+
+    .settings-group + .settings-group {
+      margin-top: 14px;
+      padding-top: 10px;
+      border-top: 1px solid #1f1f3a;
+    }
+
+    .settings-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 0;
+      cursor: pointer;
+    }
+
+    .settings-row input[type="checkbox"] {
+      accent-color: #a78bfa;
+      width: 14px;
+      height: 14px;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .settings-row label {
+      font-size: 12px;
+      color: #c4b5fd;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .settings-row.settings-row-select {
+      justify-content: space-between;
+      cursor: default;
+    }
+
+    .settings-row-select label {
+      cursor: default;
+      flex-shrink: 0;
+    }
+
+    .settings-row-select select {
+      background: #0f1830;
+      color: #e0e0e0;
+      border: 1px solid #2d2d4e;
+      border-radius: 6px;
+      padding: 3px 6px;
+      font-size: 11px;
+      max-width: 260px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* ── Lista de Cards defaults ────────────────────────── */
+    .lc-details {
+      margin-top: 6px;
+    }
+
+    .lc-details > summary {
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 600;
+      color: #a78bfa;
+      list-style: none;
+      padding: 2px 0;
+    }
+
+    .lc-details > summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .lc-details > summary::before {
+      content: "▸ ";
+    }
+
+    .lc-details[open] > summary::before {
+      content: "▾ ";
+    }
+
+    .lc-field {
+      margin-top: 10px;
+    }
+
+    .lc-field-label {
+      font-size: 11px;
+      color: #c4b5fd;
+      margin-bottom: 4px;
+    }
+
+    .lc-field select {
+      width: 100%;
+      background: #0f1830;
+      color: #e0e0e0;
+      border: 1px solid #2d2d4e;
+      border-radius: 6px;
+      padding: 4px 6px;
+      font-size: 11px;
+    }
+
+    .lc-checkbox-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 3px 8px;
+      margin-top: 6px;
+      padding: 6px;
+      background: #0f1830;
+      border: 1px solid #2d2d4e;
+      border-radius: 6px;
+    }
+
+    .lc-chk {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      color: #c4b5fd;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .lc-chk input[type="checkbox"] {
+      accent-color: #a78bfa;
+      width: 12px;
+      height: 12px;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    /* ── Cards salvos hoje (accordion) ─────────────────────── */
+    .today-accordion {
+      margin: 0;
+    }
+
+    .today-accordion > summary {
+      cursor: pointer;
+      font-size: 10px;
+      font-weight: 600;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 10px 16px 4px;
+      list-style: none;
+    }
+
+    .today-accordion > summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .today-accordion > summary::before {
+      content: "▸ ";
+    }
+
+    .today-accordion[open] > summary::before {
+      content: "▾ ";
+    }
+
+    .today-actions {
+      display: flex;
+      justify-content: flex-end;
+      padding: 0 16px 6px;
+    }
+
+    #clearStorageBtn,
+    #clearStoreCacheBtn {
+      padding: 5px 10px;
+      background: #7f1d1d;
+      color: #fca5a5;
+      border: none;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    /* ── Footer ────────────────────────────────────────────── */
+    .app-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 16px;
+      border-top: 1px solid #2d2d4e;
+      font-size: 11px;
+      color: #6b7280;
+    }
+
+    .app-footer a {
+      color: #a78bfa;
+      text-decoration: none;
+    }
+
+    .app-footer a:hover {
+      text-decoration: underline;
+    }
+
+    /* ── Disclaimer modal ─────────────────────────────────── */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(10, 10, 20, 0.72);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      padding: 20px;
+    }
+
+    .modal-box {
+      background: #16213e;
+      border: 1px solid #2d2d4e;
+      border-radius: 10px;
+      padding: 18px 20px;
+      max-width: 520px;
+    }
+
+    .modal-box h2 {
+      font-size: 14px;
+      color: #a78bfa;
+      margin-bottom: 10px;
+    }
+
+    .modal-box p {
+      font-size: 12px;
+      line-height: 1.5;
+      color: #d1d5db;
+      margin-bottom: 10px;
+    }
+
+    .modal-box p:last-of-type {
+      margin-bottom: 14px;
+    }
+
+    .modal-box strong {
+      color: #c4b5fd;
+    }
+
+    #disclaimerAckBtn {
+      display: block;
+      margin-left: auto;
+      padding: 7px 16px;
+      background: #6d4fc4;
+      color: #f5f3ff;
+      border: none;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    #disclaimerAckBtn:hover {
+      background: #7c5ce0;
+    }
+
+    /* ── Disclaimer quiz gate ──────────────────────────────── */
+    .disclaimer-quiz {
+      border-top: 1px solid #2d2d4e;
+      margin-top: 4px;
+      padding-top: 12px;
+    }
+
+    .quiz-question {
+      font-size: 12px;
+      line-height: 1.5;
+      color: #d1d5db;
+      margin-bottom: 10px;
+    }
+
+    .quiz-options {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .quiz-opt {
+      flex: 1;
+      padding: 6px 0;
+      background: #0f1830;
+      color: #c4b5fd;
+      border: 1px solid #2d2d4e;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .quiz-opt:hover {
+      border-color: #6d4fc4;
+      background: #16213e;
+    }
+
+    .quiz-feedback {
+      font-size: 12px;
+      line-height: 1.5;
+      min-height: 18px;
+      margin-bottom: 10px;
+    }
+
+    .quiz-feedback.is-wrong { color: #fca5a5; }
+    .quiz-feedback.is-right { color: #86efac; }
+
+  </style>
+</head>
+<body>
+
+  <div id="disclaimerModal" class="modal-overlay">
+    <div class="modal-box">
+      <h2>Que bom te ver por aqui!</h2>
+      <p>
+        Bem-vindo(a) ao <strong>SAMV LigaMtg Enhancer</strong> — ficamos
+        felizes que você chegou até aqui. Antes de começar, um papo rápido e
+        direto sobre o que essa extensão é (e o que ela não é).
+      </p>
+      <p>
+        <strong>Este é um projeto pessoal e não oficial, feito por hobby pela
+        Sociedade Amigos do Vale (SAMV), sem fins lucrativos.</strong> Não
+        temos vínculo, afiliação, patrocínio ou autorização da LigaMagic, da
+        Wizards of the Coast ou das lojas parceiras — somos só jogadores
+        tentando deixar a experiência um pouco melhor.
+      </p>
+      <p>
+        Na prática: a extensão lê páginas que você já está vendo no
+        navegador, autenticado com a sua própria sessão, para exibir preços
+        em reais em outros sites (Archidekt, Moxfield, Scryfall) e ajustar a
+        navegação e algumas ações dentro do próprio LigaMagic.
+      </p>
+      <p>
+        Sobre os preços que aparecem em outros sites (Archidekt, Moxfield,
+        Scryfall): são exatamente os valores que você já viu no LigaMagic,
+        guardados no seu próprio navegador — a extensão só sobrepõe essa
+        informação na tela, de forma <strong>puramente visual</strong>. Nada
+        é enviado de volta para o LigaMagic nem para qualquer outro lugar.
+      </p>
+      <p>
+        <strong>Nenhum dado seu é coletado, vendido ou compartilhado com
+        terceiros</strong> — tudo é processado e guardado localmente, no seu
+        próprio navegador. O uso da extensão é de sua responsabilidade, e pra
+        você não precisar confiar só na nossa palavra: o código é aberto e
+        pode ser auditado por qualquer pessoa, a qualquer momento.
+      </p>
+
+      <div class="disclaimer-quiz" id="disclaimerQuiz">
+        <p class="quiz-question">
+          Pra fechar, uma pergunta rápida — você leu mesmo tudo isso, né?
+          Então essa é moleza: <strong>quantas manas custa o Anel Solar?</strong>
+        </p>
+        <div class="quiz-options" id="quizOptions">
+          <button type="button" class="quiz-opt" data-value="0">0</button>
+          <button type="button" class="quiz-opt" data-value="1">1</button>
+          <button type="button" class="quiz-opt" data-value="2">2</button>
+          <button type="button" class="quiz-opt" data-value="3">3</button>
+        </div>
+        <p class="quiz-feedback" id="quizFeedback"></p>
+      </div>
+
+      <button id="disclaimerAckBtn" style="display:none;">Show, bora jogar!</button>
+    </div>
+  </div>
+
+  <header>
+    <h1>SAMV LigaMtg Enhancer</h1>
+  </header>
+
+  <div class="settings-section">
+    <div class="settings-grid">
+
+      <div class="settings-card">
+        <div class="section-title">Overlays por site</div>
+        <div class="settings-group">
+          <div class="settings-row" title="Mostra o preço em reais ao lado de cada carta na página de um deck no Archidekt.">
+            <input type="checkbox" id="overlayArchidekt" />
+            <label for="overlayArchidekt">Overlay Archidekt</label>
+          </div>
+          <div class="settings-row" title="Mostra o preço em reais ao lado de cada carta na página de um deck no Moxfield.">
+            <input type="checkbox" id="overlayMoxfield" />
+            <label for="overlayMoxfield">Overlay Moxfield</label>
+          </div>
+          <div class="settings-row" title="Mostra o preço em reais na tabela de impressões de uma carta no Scryfall.">
+            <input type="checkbox" id="overlayScryfall" />
+            <label for="overlayScryfall">Overlay Scryfall</label>
+          </div>
+          <div class="settings-row" title="Quando ativado, clicar no preço em reais (Archidekt, Moxfield ou Scryfall) abre a página do card no LigaMagic em uma nova aba.">
+            <input type="checkbox" id="openLigaMagicOnClick" />
+            <label for="openLigaMagicOnClick">Abrir LigaMagic ao clicar no preço</label>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-card">
+        <div class="section-title">Menu Principal</div>
+        <div class="settings-group">
+          <div class="settings-row" title="Adiciona a aba 'Meus Decks' ao menu principal do LigaMagic, visível em qualquer página do site.">
+            <input type="checkbox" id="addMeusDecksTab" />
+            <label for="addMeusDecksTab">Adicionar aba "Meus Decks"</label>
+          </div>
+          <div class="settings-row" title="Remove a aba 'Leilões' do menu principal do LigaMagic, em qualquer página do site.">
+            <input type="checkbox" id="removeLeiloesTab" />
+            <label for="removeLeiloesTab">Remover aba "Leilões"</label>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-card">
+        <div class="section-title">Deck (LigaMagic)</div>
+        <div class="settings-group">
+          <div class="settings-row" title="Adiciona a aba 'Preço' na página de um deck no LigaMagic, listando os cards ordenados por valor sem misturar mainboard, sideboard e maybeboard.">
+            <input type="checkbox" id="addPriceView" />
+            <label for="addPriceView">Adicionar visualização de deck por preço</label>
+          </div>
+          <div class="settings-row" title="Na página de um deck no LigaMagic, troca o botão 'Gerar Imagem' por 'Copiar Deck', que copia a lista de cards para a área de transferência.">
+            <input type="checkbox" id="replaceGerarImagemWithCopiarDeck" />
+            <label for="replaceGerarImagemWithCopiarDeck">Substituir botão de Gerar Imagem por Copiar Deck</label>
+          </div>
+          <div class="settings-row settings-row-select" title="Define qual aba (Padrão, Cor, Preço, etc.) abre automaticamente ao visitar a página de um deck no LigaMagic.">
+            <label for="defaultDeckView">Visualização padrão</label>
+            <select id="defaultDeckView">
+              <option value="">Padrão do LigaMagic</option>
+              <option value="1">Padrão</option>
+              <option value="2">Cor</option>
+              <option value="3">Custo</option>
+              <option value="4">Raridade</option>
+              <option value="5">Visual</option>
+              <option value="8">Grid</option>
+              <option value="6">CMC</option>
+              <option value="price">Preço</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-card settings-card-full">
+        <div class="section-title">Compra por Lista</div>
+        <div class="settings-group">
+          <div class="settings-row settings-row-select" title="Define o comportamento dos filtros (Idiomas, Extras, Qualidade, etc.) ao carregar a página 'Compra por Lista' no LigaMagic.">
+            <label for="listaCardsMode">Filtros automáticos</label>
+            <select id="listaCardsMode">
+              <option value="off">Não alterar</option>
+              <option value="remember">Usar últimos valores selecionados</option>
+              <option value="defaults">Aplicar valores padrão automaticamente</option>
+            </select>
+          </div>
+
+          <div class="settings-row" title="Adiciona um campo pra colar a URL de uma loja na página 'Compra por Lista', pra incluir lojas específicas na busca sem mexer nos seus favoritos reais.">
+            <input type="checkbox" id="enableCustomStoreSearch" />
+            <label for="enableCustomStoreSearch">Busca em lojas customizadas</label>
+          </div>
+
+          <div class="settings-row" title="Adiciona o botão 'Copiar Lista de Compras' na tela de resultados da 'Compra por Lista', pra copiar os cards ainda na lista (por loja) em formato de lista de Magic.">
+            <input type="checkbox" id="addCopyListaButton" />
+            <label for="addCopyListaButton">Botão "Copiar Lista de Compras"</label>
+          </div>
+
+          <details class="lc-details" id="lcDetails" title="Valores aplicados na página 'Compra por Lista' quando 'Filtros automáticos' estiver em 'Aplicar valores padrão automaticamente'.">
+            <summary>Configurar campos</summary>
+
+            <div class="lc-field">
+              <div class="lc-field-label">Idiomas</div>
+              <select id="lcIdiomaMode">
+                <option value="">Não alterar</option>
+                <option value="todos">Todos</option>
+                <option value="escolher">Escolher idiomas</option>
+              </select>
+              <div class="lc-checkbox-grid" id="lcIdiomasList" style="display:none;">
+                <label class="lc-chk"><input type="checkbox" class="lc-idioma-chk" data-value="1" /> Alemão</label>
+                <label class="lc-chk"><input type="checkbox" class="lc-idioma-chk" data-value="2" /> Inglês</label>
+                <label class="lc-chk"><input type="checkbox" class="lc-idioma-chk" data-value="3" /> Espanhol</label>
+                <label class="lc-chk"><input type="checkbox" class="lc-idioma-chk" data-value="4" /> Francês</label>
+                <label class="lc-chk"><input type="checkbox" class="lc-idioma-chk" data-value="5" /> Italiano</label>
+                <label class="lc-chk"><input type="checkbox" class="lc-idioma-chk" data-value="6" /> Japonês</label>
+                <label class="lc-chk"><input type="checkbox" class="lc-idioma-chk" data-value="7" /> Coreano</label>
+                <label class="lc-chk"><input type="checkbox" class="lc-idioma-chk" data-value="8" /> Português</label>
+                <label class="lc-chk"><input type="checkbox" class="lc-idioma-chk" data-value="9" /> Russo</label>
+                <label class="lc-chk"><input type="checkbox" class="lc-idioma-chk" data-value="10" /> Chinês Tradicional</label>
+                <label class="lc-chk"><input type="checkbox" class="lc-idioma-chk" data-value="11" /> Português/Inglês</label>
+                <label class="lc-chk"><input type="checkbox" class="lc-idioma-chk" data-value="12" /> Chinês Simplificado</label>
+                <label class="lc-chk"><input type="checkbox" class="lc-idioma-chk" data-value="16" /> Phyrexiano</label>
+              </div>
+            </div>
+
+            <div class="lc-field">
+              <div class="lc-field-label">Extras</div>
+              <select id="lcExtrasMode">
+                <option value="">Não alterar</option>
+                <option value="pode">Pode ter extras</option>
+                <option value="sem">Sem extras</option>
+                <option value="definir">Definir extras</option>
+              </select>
+              <div class="lc-checkbox-grid" id="lcExtrasList" style="display:none;">
+                <label class="lc-chk"><input type="checkbox" class="lc-extra-chk" data-value="0" /> Sem Extras</label>
+                <label class="lc-chk"><input type="checkbox" class="lc-extra-chk" data-value="2" /> Foil</label>
+                <label class="lc-chk"><input type="checkbox" class="lc-extra-chk" data-value="3" /> Promo</label>
+                <label class="lc-chk"><input type="checkbox" class="lc-extra-chk" data-value="5" /> Pre Release</label>
+                <label class="lc-chk"><input type="checkbox" class="lc-extra-chk" data-value="7" /> FNM</label>
+                <label class="lc-chk"><input type="checkbox" class="lc-extra-chk" data-value="11" /> DCI</label>
+                <label class="lc-chk"><input type="checkbox" class="lc-extra-chk" data-value="13" /> Textless</label>
+                <label class="lc-chk"><input type="checkbox" class="lc-extra-chk" data-value="17" /> Assinada</label>
+                <label class="lc-chk"><input type="checkbox" class="lc-extra-chk" data-value="19" /> Buy A Box</label>
+                <label class="lc-chk"><input type="checkbox" class="lc-extra-chk" data-value="23" /> Oversize</label>
+                <label class="lc-chk"><input type="checkbox" class="lc-extra-chk" data-value="29" /> Alterada</label>
+                <label class="lc-chk"><input type="checkbox" class="lc-extra-chk" data-value="31" /> Foil Especial/Etched</label>
+                <label class="lc-chk"><input type="checkbox" class="lc-extra-chk" data-value="37" /> Misprint</label>
+                <label class="lc-chk"><input type="checkbox" class="lc-extra-chk" data-value="41" /> Miscut</label>
+              </div>
+            </div>
+
+            <div class="lc-field">
+              <div class="lc-field-label">Qualidade</div>
+              <select id="lcQualidade">
+                <option value="">Não alterar</option>
+                <option value="1">(M) Nova</option>
+                <option value="2">(NM) Praticamente Nova ou superior</option>
+                <option value="3">(SP) Usada Levemente ou superior</option>
+                <option value="4">(MP) Usada Moderadamente ou superior</option>
+                <option value="5">(HP) Muito Usada ou superior</option>
+                <option value="6">(D) Danificada ou superior</option>
+              </select>
+            </div>
+
+            <div class="lc-field">
+              <div class="settings-row">
+                <input type="checkbox" id="lcIgnorarSemEstoque" />
+                <label for="lcIgnorarSemEstoque">Ignorar cards Sem Estoque</label>
+              </div>
+              <div class="settings-row">
+                <input type="checkbox" id="lcIgnorarPreOrder" />
+                <label for="lcIgnorarPreOrder">Ignorar cards em Pre Order</label>
+              </div>
+            </div>
+          </details>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="tracker-section">
+    <div class="section-title" style="padding: 10px 16px 4px;">Rastreador de Preços</div>
+    <div class="stats-bar">
+      <div class="stat-chip">
+        <div class="stat-value" id="todayCount">—</div>
+        <div class="stat-label">Cards hoje</div>
+      </div>
+      <div class="stat-chip">
+        <div class="stat-value" id="totalCount">—</div>
+        <div class="stat-label">Total de atualizações</div>
+      </div>
+    </div>
+
+    <details class="today-accordion" id="todayAccordion">
+      <summary>Cards salvos hoje</summary>
+      <div class="today-actions">
+        <button id="clearStorageBtn" style="display:none;">Limpar Caches</button>
+      </div>
+      <div id="todayList" class="scroll-list"><div class="empty-msg">Carregando…</div></div>
+    </details>
+
+    <details class="today-accordion" id="knownStoresAccordion">
+      <summary>Lojas conhecidas</summary>
+      <div class="today-actions">
+        <button id="clearStoreCacheBtn">Limpar Tudo</button>
+      </div>
+      <div id="knownStoresList" class="scroll-list"><div class="empty-msg">Carregando…</div></div>
+    </details>
+  </div>
+
+  <footer class="app-footer">
+    <!-- TODO: replace with the real GitHub repo issues URL once the project is published -->
+    <a href="https://github.com/TODO-SEU-USUARIO/ligamagic-global-price/issues/new" target="_blank" rel="noopener noreferrer">Pedir função nova</a>
+    <span id="appVersion"></span>
+  </footer>
+
+  <script src="popup.js"></script>
+</body>
+</html>
