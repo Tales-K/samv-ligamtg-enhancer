@@ -121,7 +121,6 @@ Nenhum dado pessoal é coletado, transmitido a terceiros ou armazenado fora do s
 
 ---
 
-## Notas para publicação (TODO)
+## Notas de publicação
 
-- O link "Pedir função nova" no rodapé do popup ainda aponta para uma URL de placeholder (`github.com/TODO-SEU-USUARIO/...`) — trocar pela URL real de issues assim que o repositório for publicado.
 - O popup já exibe a versão atual da extensão dinamicamente (via `chrome.runtime.getManifest().version`), então não precisa ser atualizada manualmente a cada release.
