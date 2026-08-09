@@ -11,12 +11,16 @@
  * per-store "X" remove buttons mutate directly, so whatever the user has
  * already removed is reflected with no extra tracking on our side.
  *
- * Clicking the button opens a small panel with four options — include
- * edition, quality, language, price — each remembered across uses
- * (settings.copyListaOptions) so the panel reopens the way it was last left.
+ * Clicking the button opens a small panel of options, each remembered across
+ * uses (settings.copyListaOptions) so it reopens the way it was last left:
+ * four toggles for what to append to each line (edition, quality, language,
+ * price), plus "Formato detalhado", which swaps the whole line format for
+ * LigaMagic's own (see detailed-format.js) and therefore ignores the other
+ * four.
  *
  * Depends on: content-utils.js (log, sendMessage, getSettings,
- * showCopiedFeedback), lista-defaults.js (isListaCardsPage)
+ * showCopiedFeedback), detailed-format.js (buildDetailedLine,
+ * QUALIDADE_SIGLAS, IDIOMA_SIGLAS), lista-defaults.js (isListaCardsPage)
  */
 
 // Official LigaMagic idioma codes, same list as the "Idiomas" checkboxes in
@@ -38,27 +42,57 @@ const IDIOMA_LABELS = {
   16: "PH",
 };
 
-// Same codes/order as the "Qualidade" <select> on the Compra por Lista form.
-const QUALIDADE_LABELS = { 1: "M", 2: "NM", 3: "SP", 4: "MP", 5: "HP", 6: "D" };
-
 // ── Text building ─────────────────────────────────────────────────────────────
 function formatCardLine(carta, options) {
   let line = `${carta.quantidade} ${carta.nomeInglesSA}`;
   if (options.versao && carta.sSigla) line += ` (${carta.sSigla.toUpperCase()})`;
-  if (options.qualidade) line += ` [${QUALIDADE_LABELS[carta.iQualidade] ?? "?"}]`;
+  // Same M/NM/SP/... codes the detailed format uses, just upper-cased for
+  // this more human-facing format.
+  if (options.qualidade) line += ` [${QUALIDADE_SIGLAS[carta.iQualidade]?.toUpperCase() ?? "?"}]`;
   if (options.idioma) line += ` [${IDIOMA_LABELS[carta.iIdioma] ?? "?"}]`;
   if (options.preco) line += ` - R$ ${carta.precoTotal}`;
   return line;
 }
 
-/** `resultado` is keyed by block index; `cartas` may have holes left by removeItem's `delete`. */
+/** Maps a result card onto the shape detailed-format.js expects. */
+function detailedCardFromResultado(carta) {
+  return {
+    quantidade: carta.quantidade,
+    // The detailed format is keyed on the Portuguese names.
+    nome: carta.nomePortuguesSA,
+    qualidade: QUALIDADE_SIGLAS[carta.iQualidade],
+    edicao: carta.sSigla,
+    idioma: IDIOMA_SIGLAS[carta.iIdioma],
+    // Already label strings here ("Foil"), unlike the numeric codes the
+    // cart's own selects use.
+    extras: carta.extrasArray,
+  };
+}
+
+/**
+ * `resultado` is keyed by block index; `cartas` may have holes left by
+ * removeItem's `delete`. The "# Loja" headers are kept in both formats:
+ * LigaMagic's own parser skips lines it can't read as a card, so a detailed
+ * list still pastes back into "Compra por Lista" with the headers in place.
+ *
+ * Cards sitting at quantity 0 are left out. The results screen still lists
+ * them — they're listings the search matched but ended up buying from
+ * another store instead — and copying them would put "0 <card>" in a
+ * shopping list that's meant to be bought or pasted back.
+ */
 function buildListaText(resultado, options) {
+  const formatLine = options.detalhado
+    ? (carta) => buildDetailedLine(detailedCardFromResultado(carta))
+    : (carta) => formatCardLine(carta, options);
+
   return Object.values(resultado)
     .filter(Boolean)
     .map((bloco) => {
-      const lines = bloco.cartas.filter(Boolean).map((carta) => formatCardLine(carta, options));
-      return [`# ${bloco.nomeLoja}`, ...lines].join("\n");
+      const cartas = bloco.cartas.filter((carta) => carta && carta.quantidade > 0);
+      if (cartas.length === 0) return null;
+      return [`# ${bloco.nomeLoja}`, ...cartas.map(formatLine)].join("\n");
     })
+    .filter(Boolean)
     .join("\n\n");
 }
 
@@ -70,6 +104,20 @@ const OPTION_FIELDS = [
   { key: "preco", label: "Incluir preço" },
 ];
 
+const DETALHADO_FIELD = {
+  key: "detalhado",
+  label: "Formato detalhado",
+  title:
+    "Copia no formato do próprio LigaMagic, fixando edição, qualidade, " +
+    "idioma e extras de cada carta. Pode ser colado de volta na Compra por Lista.",
+};
+
+const checkboxRow = ({ key, label, title }, checked) => `
+  <label title="${title ?? ""}" style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px; cursor: pointer;">
+    <input type="checkbox" class="lgm-copy-lista-opt" data-key="${key}" ${checked ? "checked" : ""}>
+    ${label}
+  </label>`;
+
 function buildWrap(initialOptions) {
   const wrap = document.createElement("span");
   wrap.id = "lgm-copy-lista-wrap";
@@ -79,13 +127,10 @@ function buildWrap(initialOptions) {
     <div id="lgm-copy-lista-panel" style="display: none; position: absolute; bottom: 100%; left: 0; margin-bottom: 6px;
       background: #fff; border: 1px solid #999; border-radius: 2px; padding: 10px; width: 190px; z-index: 50;
       box-shadow: 0 2px 8px rgba(0,0,0,0.2); font-size: 12px;">
-      ${OPTION_FIELDS.map(
-        ({ key, label }) => `
-        <label style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px; cursor: pointer;">
-          <input type="checkbox" class="lgm-copy-lista-opt" data-key="${key}" ${initialOptions[key] ? "checked" : ""}>
-          ${label}
-        </label>`,
-      ).join("")}
+      ${checkboxRow(DETALHADO_FIELD, initialOptions[DETALHADO_FIELD.key])}
+      <div id="lgm-copy-lista-extra-opts" style="border-top: 1px solid #ddd; margin: 8px 0; padding-top: 8px;">
+        ${OPTION_FIELDS.map(({ key, label }) => checkboxRow({ key, label }, initialOptions[key])).join("")}
+      </div>
       <div class="botao" id="lgm-copy-lista-confirm" style="cursor: pointer; text-align: center; margin-top: 4px;">Copiar</div>
     </div>
   `;
@@ -100,6 +145,18 @@ function readOptionsFromPanel(panel) {
   return options;
 }
 
+/**
+ * The detailed format has a fixed line shape of its own, so the four
+ * "incluir …" toggles have no effect while it's on — grey them out instead
+ * of silently ignoring them.
+ */
+function syncPanelState(panel) {
+  const detailedOn = panel.querySelector('[data-key="detalhado"]').checked;
+  const extraOpts = panel.querySelector("#lgm-copy-lista-extra-opts");
+  extraOpts.style.opacity = detailedOn ? "0.45" : "1";
+  extraOpts.querySelectorAll("input").forEach((el) => (el.disabled = detailedOn));
+}
+
 async function handleCopyClick(wrap, button, panel) {
   const options = readOptionsFromPanel(panel);
   sendMessage({ action: "saveSettings", settings: { copyListaOptions: options } });
@@ -112,6 +169,12 @@ async function handleCopyClick(wrap, button, panel) {
   }
 
   const text = buildListaText(resultado, options);
+  if (!text) {
+    log("Copiar Lista: nenhuma carta com quantidade maior que zero no resultado.");
+    panel.style.display = "none";
+    return;
+  }
+
   try {
     await navigator.clipboard.writeText(text);
   } catch (err) {
@@ -143,6 +206,11 @@ function injectCopyListaButton(initialOptions) {
     event.stopPropagation();
     panel.style.display = panel.style.display === "none" ? "block" : "none";
   });
+
+  panel
+    .querySelector('[data-key="detalhado"]')
+    .addEventListener("change", () => syncPanelState(panel));
+  syncPanelState(panel);
 
   wrap.querySelector("#lgm-copy-lista-confirm").addEventListener("click", (event) => {
     event.stopPropagation();

@@ -33,7 +33,7 @@
   "content_scripts": [
     {
       "matches": ["*://*.ligamagic.com.br/*"],
-      "js": ["content-utils.js", "nav-menu.js", "scraper-deck.js", "deck-view.js", "deck-copy-button.js", "lista-defaults.js", "store-search-override.js", "lista-copy-button.js", "scraper-card.js", "content.js"]
+      "js": ["content-utils.js", "detailed-format.js", "nav-menu.js", "scraper-deck.js", "deck-view.js", "deck-copy-button.js", "lista-defaults.js", "store-search-override.js", "lista-copy-button.js", "carrinho-copy-button.js", "scraper-card.js", "content.js"]
     },
     {
       "matches": ["*://*.archidekt.com/*"],

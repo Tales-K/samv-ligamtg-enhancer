@@ -625,9 +625,13 @@ const DEFAULT_SETTINGS = {
   replaceGerarImagemWithCopiarDeck: true, // whether "Gerar Imagem" becomes "Copiar Deck" on deck pages
   enableCustomStoreSearch: true, // whether the "Lojas Customizadas" section is injected into Compra por Lista
   addCopyListaButton: true, // whether the "Copiar Lista de Compras" button is injected into Compra por Lista results
-  // Which optional fields "Copiar Lista de Compras" includes per card line,
-  // remembered across uses so the panel reopens the way it was last left.
+  addCarrinhoCopyButton: true, // whether the "Copiar Lista" button is injected into the cart's shopping list
+  // How "Copiar Lista de Compras" formats each card line, remembered across
+  // uses so the panel reopens the way it was last left. `detalhado` swaps in
+  // LigaMagic's own format and makes the other four inert (see
+  // detailed-format.js).
   copyListaOptions: {
+    detalhado: false,
     versao: false,
     qualidade: false,
     idioma: false,

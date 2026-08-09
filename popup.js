@@ -128,6 +128,7 @@ document.addEventListener("DOMContentLoaded", () => {
     "replaceGerarImagemWithCopiarDeck",
     "enableCustomStoreSearch",
     "addCopyListaButton",
+    "addCarrinhoCopyButton",
   ];
   const selectIds = ["defaultDeckView"];
 
