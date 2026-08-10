@@ -67,3 +67,18 @@ function buildDetailedLine({ quantidade, nome, qualidade, edicao, idioma, extras
   const name = `${quantidade} ${normalizeDetailedToken(nome)}`;
   return parts.length ? `${name} ${parts.join("")}` : name;
 }
+
+/**
+ * Renders `{ title, lines }` groups as a "# <title>" header followed by its
+ * lines, one blank line between groups. Empty groups are dropped.
+ *
+ * The headers are safe to keep: LigaMagic's own parser skips any line it
+ * can't read as a card, so the text still pastes back into "Compra por
+ * Lista" with them in place.
+ */
+function buildSectionedText(sections) {
+  return sections
+    .filter((section) => section && section.lines.length > 0)
+    .map((section) => [`# ${section.title}`, ...section.lines].join("\n"))
+    .join("\n\n");
+}

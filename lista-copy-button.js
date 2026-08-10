@@ -20,7 +20,8 @@
  *
  * Depends on: content-utils.js (log, sendMessage, getSettings,
  * showCopiedFeedback), detailed-format.js (buildDetailedLine,
- * QUALIDADE_SIGLAS, IDIOMA_SIGLAS), lista-defaults.js (isListaCardsPage)
+ * buildSectionedText, QUALIDADE_SIGLAS, IDIOMA_SIGLAS), lista-defaults.js
+ * (isListaCardsPage)
  */
 
 // Official LigaMagic idioma codes, same list as the "Idiomas" checkboxes in
@@ -71,9 +72,7 @@ function detailedCardFromResultado(carta) {
 
 /**
  * `resultado` is keyed by block index; `cartas` may have holes left by
- * removeItem's `delete`. The "# Loja" headers are kept in both formats:
- * LigaMagic's own parser skips lines it can't read as a card, so a detailed
- * list still pastes back into "Compra por Lista" with the headers in place.
+ * removeItem's `delete`.
  *
  * Cards sitting at quantity 0 are left out. The results screen still lists
  * them — they're listings the search matched but ended up buying from
@@ -85,15 +84,14 @@ function buildListaText(resultado, options) {
     ? (carta) => buildDetailedLine(detailedCardFromResultado(carta))
     : (carta) => formatCardLine(carta, options);
 
-  return Object.values(resultado)
+  const sections = Object.values(resultado)
     .filter(Boolean)
-    .map((bloco) => {
-      const cartas = bloco.cartas.filter((carta) => carta && carta.quantidade > 0);
-      if (cartas.length === 0) return null;
-      return [`# ${bloco.nomeLoja}`, ...cartas.map(formatLine)].join("\n");
-    })
-    .filter(Boolean)
-    .join("\n\n");
+    .map((bloco) => ({
+      title: bloco.nomeLoja,
+      lines: bloco.cartas.filter((carta) => carta && carta.quantidade > 0).map(formatLine),
+    }));
+
+  return buildSectionedText(sections);
 }
 
 // ── Panel ─────────────────────────────────────────────────────────────────────
