@@ -19,7 +19,7 @@
  * hand-rolled colors, so it doesn't drift from the site's own look.
  *
  * Depends on: content-utils.js (log, waitForElement, sendMessage, getSettings,
- * applySamvStyle),
+ * applySamvStyle, SAMV_PURPLE),
  * lista-defaults.js (isListaCardsPage)
  */
 
@@ -41,10 +41,10 @@ function buildBar() {
   wrap.id = "lgm-custom-store-bar-wrap";
   wrap.style.marginBottom = "10px";
   wrap.innerHTML = `
-    <div id="lgm-custom-store-bar" style="display: inline-flex; gap: 4px; align-items: stretch;">
+    <div id="lgm-custom-store-bar" style="display: inline-flex; gap: 4px; align-items: center;">
       <div style="position: relative; width: ${STORE_INPUT_WIDTH};">
         <input type="text" id="lgm-custom-store-input" autocomplete="off"
-          placeholder="https://www.sualoja.com.br"
+          placeholder="nome ou link"
           style="width: 100%; box-sizing: border-box; padding: 6px 2px; font-family: inherit; ${INPUT_BORDER_STYLE}">
         <div id="lgm-known-stores-dropdown"
           style="display: none; position: absolute; top: 100%; left: 0; right: 0; z-index: 50;
@@ -60,6 +60,15 @@ function buildBar() {
 }
 
 let knownStores = []; // [{ id, name, domain: string|null }], sorted alphabetically by name
+
+/**
+ * Most stores are discovered by ID+name only (see background.js), and their
+ * domain is filled in later, if ever. A store without one shows just its
+ * name — saying so out loud is noise the user can't act on.
+ */
+function domainSuffix(domain) {
+  return domain ? ` <span style="opacity: 0.6;">(${domain})</span>` : "";
+}
 
 // All known stores go in the dropdown, not just the ones with a resolved
 // domain — the ID (from screenfilter.stores scraping, see background.js) is
@@ -88,14 +97,13 @@ function renderKnownStoresDropdown(filterText = "") {
   }
 
   dropdown.innerHTML = matches
-    .map((s) => {
-      const domainLabel = s.domain ?? "domínio ainda não resolvido";
-      return `
+    .map(
+      (s) => `
       <div class="lgm-known-store-option" data-id="${s.id}" data-name="${s.name}" data-domain="${s.domain ?? ""}"
         style="padding: 4px 6px; font-size: 12px; cursor: pointer;">
-        ${s.name} <span style="opacity: 0.6;">(${domainLabel})</span>
-      </div>`;
-    })
+        ${s.name}${domainSuffix(s.domain)}
+      </div>`,
+    )
     .join("");
   dropdown.style.display = "block";
 }
@@ -109,12 +117,11 @@ function renderChecklist(list) {
   if (!container) return;
   container.innerHTML = "";
   list.forEach((entry) => {
-    const domainLabel = entry.domain ?? "domínio ainda não resolvido";
     const row = document.createElement("label");
     row.style.cssText = "display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer;";
     row.innerHTML = `
       <input type="checkbox" data-id="${entry.id}" ${entry.checked ? "checked" : ""}>
-      <span>${entry.name} <span style="opacity: 0.6;">(${domainLabel})</span></span>
+      <span>${entry.name}${domainSuffix(entry.domain)}</span>
       <button type="button" data-remove-id="${entry.id}" title="Remover"
         style="border: none; background: none; cursor: pointer; color: inherit; opacity: 0.6;">×</button>
     `;
@@ -167,6 +174,17 @@ async function handleKnownStorePick(option) {
   });
 }
 
+/**
+ * True for anything shaped like a domain — "sualoja.com.br", with the
+ * scheme, "www." and any path all optional. The field takes store names too,
+ * and those are picked from the dropdown; only something that could actually
+ * be a store's address is worth sending off to be resolved, which costs a
+ * permission prompt and possibly a visible tab.
+ */
+function looksLikeUrl(text) {
+  return /^(https?:\/\/)?([a-z0-9-]+\.)+[a-z]{2,}(\/\S*)?$/i.test(text);
+}
+
 async function handleAddClick() {
   const input = document.getElementById("lgm-custom-store-input");
   const statusEl = document.getElementById("lgm-custom-store-status");
@@ -174,6 +192,11 @@ async function handleAddClick() {
   if (!url) return;
 
   hideKnownStoresDropdown();
+
+  if (!looksLikeUrl(url)) {
+    statusEl.textContent = "Escolha uma loja da lista ou digite o link dela (ex.: sualoja.com.br).";
+    return;
+  }
 
   // requestStorePermissions must be the very first await here — no prior
   // lookups — the permission prompt only works during a real user gesture
@@ -240,11 +263,30 @@ function wireKnownStoresDropdown(input) {
   });
 }
 
+/**
+ * "Minhas Favoritas" is the option our search bar hangs off, so its label
+ * says what it now also does — the site's own wording, plus our part in the
+ * extension's purple so it reads as an addition rather than native text.
+ */
+function labelFavoritesRadio() {
+  const title = [...document.querySelectorAll(".radio-card-title")].find(
+    (el) => el.textContent.trim() === "Minhas Favoritas",
+  );
+  if (!title) return;
+
+  const suffix = document.createElement("span");
+  suffix.textContent = " + Buscar Lojas";
+  suffix.style.setProperty("color", SAMV_PURPLE, "important");
+  title.appendChild(suffix);
+}
+
 function injectCustomStoreBar() {
   if (document.getElementById("lgm-custom-store-bar-wrap")) return true;
 
   const favoritesBlock = document.getElementById("mp_store_favorites");
   if (!favoritesBlock) return false;
+
+  labelFavoritesRadio();
 
   const bar = buildBar();
   favoritesBlock.insertAdjacentElement("afterbegin", bar);

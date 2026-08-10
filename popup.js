@@ -64,19 +64,17 @@ function renderKnownStores(cache) {
   const entries = Object.values(cache).sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
   renderList(knownStoresListEl, entries, {
     emptyMessage: "Nenhuma loja mapeada ainda.",
-    rowHtml: (entry) => {
-      const domainText = entry.domain ?? "sem domínio";
-      const domainClass = entry.domain ? "store-domain" : "store-domain unresolved";
-      return `
+    // Most stores are known by id+name only; their domain fills in later, if
+    // ever. Those simply show no domain rather than announcing its absence.
+    rowHtml: (entry) => `
         <div class="store-item">
           <span class="store-name" title="${entry.name}">${entry.name}</span>
           <span class="store-meta">
-            <span class="${domainClass}" title="${entry.domain ?? "domínio ainda não resolvido"}">${domainText}</span>
+            ${entry.domain ? `<span class="store-domain" title="${entry.domain}">${entry.domain}</span>` : ""}
             <button class="store-remove" data-id="${entry.id}" title="Remover">×</button>
           </span>
         </div>
-      `;
-    },
+      `,
   });
 }
 

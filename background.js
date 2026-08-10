@@ -13,6 +13,10 @@
  */
 
 // ── Lifecycle ────────────────────────────────────────────────────────────────
+chrome.runtime.onInstalled.addListener(() => {
+  seedStoreIdCache().catch(() => {});
+});
+
 // Any LigaMagic page can carry a `screenfilter.stores` client-side object
 // (card listing pages, marketplace search, etc.) — whenever one finishes
 // loading, harvest whatever stores it lists into the local cache. See
@@ -520,6 +524,38 @@ async function handleRemoveStoreCacheEntry(id) {
   delete cache[id];
   await saveStoreIdCache(cache);
   return { ok: true };
+}
+
+/**
+ * Loads the bundled starter set of stores (stores-seed.json), so the store
+ * picker is useful from the very first run instead of only after the user
+ * has browsed enough card pages for the scraper to have found them. The seed
+ * was itself collected by scraping `screenfilter.stores` off the listing
+ * pages of a spread of staple cards.
+ *
+ * Whatever is already cached always wins; this only fills gaps (including
+ * back-filling a domain onto an entry that hasn't resolved one yet), so it's
+ * safe to re-run on every update without undoing anything the user has
+ * discovered since.
+ */
+async function seedStoreIdCache() {
+  const response = await fetch(chrome.runtime.getURL("stores-seed.json"));
+  const seed = await response.json();
+  const cache = await loadStoreIdCache();
+
+  let added = 0;
+  for (const { id, name, domain } of seed) {
+    const existing = cache[id];
+    if (existing) {
+      if (!existing.domain && domain) existing.domain = domain;
+      continue;
+    }
+    cache[id] = { id, name, domain: domain ?? null, addedAt: Date.now() };
+    added++;
+  }
+
+  await saveStoreIdCache(cache);
+  console.log("[LigaMagic Tracker]", `Store seed applied: ${added} new, ${seed.length} total.`);
 }
 
 // ── Store scraping (card listing pages, marketplace search, etc.) ──────────────
