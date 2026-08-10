@@ -444,7 +444,20 @@ async function handleInstallSearchOverride(tabId) {
         payload.cards.forEach((c, i) => {
           c.chaveBusca = i + 1;
         });
-        payload.lojas = { ...payload.lojas, tipoFiltro: "2", favoritas: customIds, quantidadeLimite: String(customIds.length) };
+        // Whatever the user ticked in the site's own "Lojas Favoritas" list
+        // counts too: those checkboxes don't reach the request on their own
+        // (the native flow sends the whole favourites list regardless), so
+        // they'd otherwise be dropped the moment a custom store was added.
+        const favoriteIds = [
+          ...document.querySelectorAll('input[name="txt_lojafav[]"]:checked'),
+        ].map((el) => el.value);
+        const storeIds = [...new Set([...favoriteIds, ...customIds])];
+        payload.lojas = {
+          ...payload.lojas,
+          tipoFiltro: "2",
+          favoritas: storeIds,
+          quantidadeLimite: String(storeIds.length),
+        };
         return originalPesquisar(payload);
       };
 
@@ -656,7 +669,9 @@ const DEFAULT_SETTINGS = {
   defaultDeckView: "price", // deck page tab to auto-select on load; "" keeps LigaMagic's own default
   addPriceView: true, // whether the "Preço" deck visualization tab is injected at all
   addMeusDecksTab: true, // whether the "Meus Decks" tab is injected into the main menu
+  addMeusPedidosTab: true, // whether the "Meus Pedidos" tab is injected next to it
   removeLeiloesTab: true, // whether the "Leilões" tab is removed from the main menu
+  removeForumTab: true, // whether the "Fórum" tab is removed from the main menu
   replaceGerarImagemWithCopiarDeck: true, // whether "Gerar Imagem" becomes "Copiar Deck" on deck pages
   enableCustomStoreSearch: true, // whether the "Lojas Customizadas" section is injected into Compra por Lista
   addCopyListaButton: true, // whether the "Copiar Lista de Compras" button is injected into Compra por Lista results
@@ -676,15 +691,18 @@ const DEFAULT_SETTINGS = {
   // (not replacing) whatever Todas Lojas/Minhas Favoritas is currently
   // selected. Persisted across reloads so the working set isn't lost.
   customStoreSelection: [], // { id, name, domain, checked }[]
+  // Ships applying a sensible filter set out of the box: cards in Portuguese
+  // and/or English, extras allowed, HP or better, and nothing that can't be
+  // bought right now.
   listaCards: {
-    mode: "remember", // "off" (don't touch) | "remember" (reapply last manual selection) | "defaults" (apply the fields below)
-    idiomaMode: "", // "" | "todos" | "escolher"
-    idiomas: [], // txt_idioma[] values, only used when idiomaMode === "escolher"
-    extrasMode: "", // "" | "pode" | "sem" | "definir"
+    mode: "defaults", // "off" (don't touch) | "remember" (reapply last manual selection) | "defaults" (apply the fields below)
+    idiomaMode: "escolher", // "" | "todos" | "escolher"
+    idiomas: ["2", "8", "11"], // txt_idioma[] values (Inglês, Português, Português/Inglês), only used when idiomaMode === "escolher"
+    extrasMode: "pode", // "" | "pode" | "sem" | "definir"
     extras: [], // txt_extras[] values, only used when extrasMode === "definir"
-    qualidade: "", // txt_qualidade value; "" (don't touch)
+    qualidade: "5", // txt_qualidade value — (HP) Muito Usada ou superior; "" (don't touch)
     ignorarSemEstoque: true,
-    ignorarPreOrder: false,
+    ignorarPreOrder: true,
     // Snapshot captured live from the page when mode === "remember"; same
     // shape as the fields above (ignorarSemEstoque/ignorarPreOrder use null
     // for "no capture yet" instead of a default boolean).

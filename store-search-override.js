@@ -185,6 +185,12 @@ function looksLikeUrl(text) {
   return /^(https?:\/\/)?([a-z0-9-]+\.)+[a-z]{2,}(\/\S*)?$/i.test(text);
 }
 
+/** Progress messages read as normal text; anything that went wrong shows in red. */
+function setStatus(statusEl, text, { isError = false } = {}) {
+  statusEl.textContent = text;
+  statusEl.style.color = isError ? "#c0392b" : "";
+}
+
 async function handleAddClick() {
   const input = document.getElementById("lgm-custom-store-input");
   const statusEl = document.getElementById("lgm-custom-store-status");
@@ -194,7 +200,7 @@ async function handleAddClick() {
   hideKnownStoresDropdown();
 
   if (!looksLikeUrl(url)) {
-    statusEl.textContent = "Escolha uma loja da lista ou digite o link dela (ex.: sualoja.com.br).";
+    setStatus(statusEl, "Escolha uma loja da lista ou digite o link dela (ex.: sualoja.com.br).", { isError: true });
     return;
   }
 
@@ -202,25 +208,25 @@ async function handleAddClick() {
   // lookups — the permission prompt only works during a real user gesture
   // and even a couple of milliseconds of unrelated awaits before it is
   // enough to lose that activation (confirmed live, see background.js).
-  statusEl.textContent = "Pedindo permissão…";
+  setStatus(statusEl, "Pedindo permissão…");
   const permissionResult = await sendMessage({ action: "requestStorePermissions", urls: [url] });
   if (!permissionResult?.granted) {
     const reason = permissionResult?.error ? ` (${permissionResult.error})` : "";
-    statusEl.textContent = `Permissão negada${reason}`;
+    setStatus(statusEl, `Permissão negada${reason}`, { isError: true });
     return;
   }
 
-  statusEl.textContent = "Resolvendo loja…";
+  setStatus(statusEl, "Resolvendo loja…");
   const resolved = await sendMessage({ action: "resolveStoreUrl", url });
   if (!resolved?.id) {
-    statusEl.textContent = `Erro: ${resolved?.error ?? "desconhecido"}`;
+    setStatus(statusEl, `Erro: ${resolved?.error ?? "desconhecido"}`, { isError: true });
     return;
   }
 
   await addStoreToChecklist(resolved);
   await loadKnownStores();
   input.value = "";
-  statusEl.textContent = "";
+  setStatus(statusEl, "");
 }
 
 async function handleChecklistClick(event) {

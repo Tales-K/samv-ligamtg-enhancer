@@ -16,7 +16,8 @@
  * In "defaults"/initial "remember" mode, values are applied at most once per
  * page load — the user's own edits afterward are never touched or reverted.
  *
- * Depends on: content-utils.js (log, waitForElement)
+ * Depends on: content-utils.js (log, waitForElement, applySamvStyle,
+ * showCopiedFeedback)
  */
 
 function isListaCardsPage() {
@@ -161,6 +162,41 @@ function watchAndRememberSelections(container) {
   });
 }
 
+/**
+ * Adds a "Carregar filtro padrão" button just above the site's own "Mudar
+ * para Busca Detalhada" link, applying the values configured in the popup on
+ * demand. Useful whenever the filters aren't applied automatically (mode
+ * "off"/"remember") or the user has since changed them by hand and wants to
+ * get back to their own defaults.
+ */
+function injectLoadDefaultsButton(container) {
+  if (container.querySelector("#lgm-load-defaults-btn")) return;
+
+  const detailedLink = container.querySelector(".change-input-type-btn");
+  if (!detailedLink) return;
+
+  const button = document.createElement("div");
+  button.id = "lgm-load-defaults-btn";
+  button.className = "botao";
+  button.textContent = "Carregar filtro padrão";
+  button.title = "Aplicar os filtros configurados nas opções da extensão";
+  button.style.cssText =
+    "cursor: pointer; display: inline-block; margin-bottom: 6px; white-space: nowrap;";
+  applySamvStyle(button);
+
+  button.addEventListener("click", () => {
+    chrome.runtime.sendMessage({ action: "getSettings" }, (settings) => {
+      const cfg = settings?.listaCards;
+      if (!cfg) return;
+      applyListaCardsValues(container, cfg);
+      showCopiedFeedback(button, "Filtro aplicado!");
+      log("Applied Compra por Lista default filters on demand.");
+    });
+  });
+
+  detailedLink.insertAdjacentElement("beforebegin", button);
+}
+
 let listaCardsApplied = false;
 
 function tryApplyListaCardsDefaults() {
@@ -174,6 +210,7 @@ function tryApplyListaCardsDefaults() {
   // Mark as applied immediately — this must run at most once per page load,
   // regardless of what the fetched settings turn out to be.
   listaCardsApplied = true;
+  injectLoadDefaultsButton(container);
 
   chrome.runtime.sendMessage({ action: "getSettings" }, (settings) => {
     const cfg = settings?.listaCards;

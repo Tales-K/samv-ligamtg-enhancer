@@ -1,7 +1,7 @@
 /**
  * Individual card page scraper — ?view=cards/card&card=...
  *
- * Depends on: content-utils.js (log, parsePrice, sendToBackground)
+ * Depends on: content-utils.js (log, parsePrice, sendToBackground, sendMessage)
  */
 
 // ── Page detection ────────────────────────────────────────────────────────────
@@ -114,11 +114,14 @@ async function scrapeCardPage() {
     return [];
   }
 
-  // Early-exit if this card was already sent today.
-  const today = new Date().toISOString().slice(0, 10);
-  const { stats } = await chrome.storage.local.get("stats");
-  if (stats?.todayDate === today && stats?.todayCards?.[name]) {
-    log(`Card page: "${name}" already sent today — skipping.`);
+  // Skip the whole edition sweep below (which hovers every printing of the
+  // card, one at a time) when this card's price is still current. The
+  // background's price cache only ever holds entries scraped today — it
+  // prunes older ones as it loads — so a hit here means there is nothing to
+  // refresh.
+  const cached = await sendMessage({ action: "queryPrices", cards: [name] });
+  if (cached?.prices?.[name]) {
+    log(`Card page: "${name}" already scraped today — skipping.`);
     return [];
   }
 
