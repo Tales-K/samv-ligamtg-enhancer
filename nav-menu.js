@@ -5,7 +5,7 @@
  *   - Removes the "Leilões" tab (unless disabled via the "removeLeiloesTab"
  *     setting).
  *
- * Depends on: content-utils.js (log, waitForElement)
+ * Depends on: content-utils.js (log, waitForElement, applySamvStyle)
  */
 
 const MY_DECKS_URL = "/?view=dks/decks&myown=1";
@@ -28,6 +28,7 @@ function injectMyDecksTab(menu) {
   const link = tab.querySelector("a");
   link.setAttribute("href", MY_DECKS_URL);
   link.textContent = "Meus Decks";
+  applySamvStyle(tab);
 
   decksOption.insertAdjacentElement("afterend", tab);
   log('Injected "Meus Decks" tab into main menu.');

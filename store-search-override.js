@@ -18,7 +18,8 @@
  * button, matching the "Procurar" button in Busca Detalhada) instead of
  * hand-rolled colors, so it doesn't drift from the site's own look.
  *
- * Depends on: content-utils.js (log, waitForElement, sendMessage, getSettings),
+ * Depends on: content-utils.js (log, waitForElement, sendMessage, getSettings,
+ * applySamvStyle),
  * lista-defaults.js (isListaCardsPage)
  */
 
@@ -248,7 +249,9 @@ function injectCustomStoreBar() {
   const bar = buildBar();
   favoritesBlock.insertAdjacentElement("afterbegin", bar);
 
-  document.getElementById("lgm-custom-store-add-btn").addEventListener("click", handleAddClick);
+  const addBtn = document.getElementById("lgm-custom-store-add-btn");
+  applySamvStyle(addBtn);
+  addBtn.addEventListener("click", handleAddClick);
   wireKnownStoresDropdown(document.getElementById("lgm-custom-store-input"));
 
   const checklist = document.getElementById("lgm-custom-store-checklist");

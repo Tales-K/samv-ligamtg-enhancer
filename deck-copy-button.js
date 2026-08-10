@@ -8,7 +8,8 @@
  * cards aren't actually part of the deck (same board data — and the same
  * "not counted" rule — deck-view.js uses for the price total/tooltip).
  *
- * Depends on: content-utils.js (log, cardNameFromHref, showCopiedFeedback),
+ * Depends on: content-utils.js (log, cardNameFromHref, showCopiedFeedback,
+ * applySamvStyle),
  * scraper-deck.js (isDeckPage), deck-view.js (getDeckBoards)
  */
 
@@ -69,6 +70,7 @@ function replaceGerarImagemButton(deckId) {
   button.removeAttribute("onclick");
   button.textContent = "Copiar Deck";
   button.dataset.copyDeckReplaced = "1";
+  applySamvStyle(button);
   button.addEventListener("click", (event) => {
     event.stopPropagation();
     copyDeckList(deckId, button);

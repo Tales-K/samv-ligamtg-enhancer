@@ -20,8 +20,8 @@
  * so nothing is needed from the page's own JS.
  *
  * Depends on: content-utils.js (log, getSettings, waitForElement,
- * showCopiedFeedback), detailed-format.js (buildDetailedLine,
- * buildSectionedText)
+ * showCopiedFeedback, applySamvStyle), detailed-format.js
+ * (buildDetailedLine, buildSectionedText)
  */
 
 // ── "Lista de Compras" (the editable table at the top) ────────────────────────
@@ -154,6 +154,7 @@ function injectCarrinhoCopyButton() {
     "Copiar a lista de compras e os itens do carrinho no formato detalhado do LigaMagic";
   button.style.cssText = "cursor: pointer; margin-left: 8px; white-space: nowrap;";
   button.textContent = "Copiar Lista";
+  applySamvStyle(button);
   button.addEventListener("click", () => handleCarrinhoCopyClick(button));
 
   searchBar.appendChild(button);

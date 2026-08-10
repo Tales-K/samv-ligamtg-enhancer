@@ -12,7 +12,9 @@
  * board's cards by price (highest first) without ever mixing boards
  * together.
  *
- * Depends on: content-utils.js (log, parsePrice, waitForElement), scraper-deck.js (isDeckPage)
+ * Depends on: content-utils.js (log, parsePrice, waitForElement, paintSamv,
+ * SAMV_PURPLE_HOVER),
+ * scraper-deck.js (isDeckPage)
  */
 
 const DECK_VIEW_TAB_IDS = [1, 2, 3, 4, 5, 6, 8]; // native LigaMagic view ids
@@ -107,6 +109,16 @@ function buildPriceView(deckId) {
   return container;
 }
 
+/**
+ * The site's tab bar marks the active tab by filling its background and
+ * leaves the others transparent, so the "Preço" tab follows the same rule —
+ * in the extension's purple instead of LigaMagic's orange.
+ */
+function repaintPriceTab(deckId) {
+  const tab = document.getElementById(`dk-tab-price-${deckId}`);
+  if (tab) paintSamv(tab, { filled: tab.classList.contains("tab-selected") });
+}
+
 function selectPriceView(deckId) {
   DECK_VIEW_TAB_IDS.forEach((i) => {
     document.getElementById(`dk-val-${i}-${deckId}`)?.style.setProperty("display", "none");
@@ -116,6 +128,7 @@ function selectPriceView(deckId) {
   const tab = document.getElementById(`dk-tab-price-${deckId}`);
   if (view) view.style.display = "";
   tab?.classList.add("tab-selected");
+  repaintPriceTab(deckId);
 }
 
 /**
@@ -171,6 +184,9 @@ function injectPriceTab(deckId) {
   tab.id = `dk-tab-price-${deckId}`;
   tab.textContent = "Preço";
   tab.addEventListener("click", () => selectPriceView(deckId));
+  tab.addEventListener("mouseenter", () => paintSamv(tab, { purple: SAMV_PURPLE_HOVER }));
+  tab.addEventListener("mouseleave", () => repaintPriceTab(deckId));
+  paintSamv(tab, { filled: false });
 
   // Listed right after Padrão, before Cor.
   const padraoTab = document.getElementById(`dk-tab-1-${deckId}`);
@@ -185,6 +201,7 @@ function injectPriceTab(deckId) {
     document.getElementById(`dk-tab-${i}-${deckId}`)?.addEventListener("click", () => {
       document.getElementById(`dk-val-price-${deckId}`)?.style.setProperty("display", "none");
       tab.classList.remove("tab-selected");
+      repaintPriceTab(deckId);
     });
   });
 

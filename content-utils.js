@@ -28,6 +28,48 @@ function waitForElement(tryFn, timeoutMs = 15_000) {
   setTimeout(() => observer.disconnect(), timeoutMs);
 }
 
+// ── Extension-injected controls ──────────────────────────────────────────────
+// The same purple the extension's own popup uses, so anything this extension
+// adds to LigaMagic reads as ours at a glance instead of passing for a native
+// control.
+const SAMV_PURPLE = "#6d4fc4";
+const SAMV_PURPLE_HOVER = "#7c5ce0";
+const SAMV_PURPLE_TEXT = "#f5f3ff";
+
+/**
+ * Paints one injected control, either filled (purple background, light text)
+ * or hollow (transparent background, purple text) — the same pair the site's
+ * own tab bars use to say "active" vs "not active".
+ *
+ * Everything is set as !important, and the text colour is pushed onto child
+ * elements too: these controls are mostly clones of the site's own tabs and
+ * buttons, so they arrive carrying LigaMagic's styling — including rules on
+ * inner <a>/<span> that would otherwise win over a colour set on the wrapper.
+ */
+function paintSamv(element, { filled = true, purple = SAMV_PURPLE } = {}) {
+  const textColor = filled ? SAMV_PURPLE_TEXT : purple;
+  // The shorthand, so any background-image the cloned element inherited
+  // (gradients on the site's own tabs) is cleared along with the colour.
+  element.style.setProperty("background", filled ? purple : "transparent", "important");
+  element.style.setProperty("color", textColor, "important");
+  element.style.setProperty("border-color", purple, "important");
+  element
+    .querySelectorAll("a, span, div, b")
+    .forEach((child) => child.style.setProperty("color", textColor, "important"));
+}
+
+/**
+ * Paints an always-filled control (a button) and keeps it painted on hover.
+ * For a control that toggles between active and inactive, drive `paintSamv`
+ * directly instead — see the "Preço" tab in deck-view.js.
+ */
+function applySamvStyle(element) {
+  paintSamv(element);
+  element.addEventListener("mouseenter", () => paintSamv(element, { purple: SAMV_PURPLE_HOVER }));
+  element.addEventListener("mouseleave", () => paintSamv(element));
+  return element;
+}
+
 // ── Button feedback ───────────────────────────────────────────────────────────
 /**
  * Flashes `text` on `button` for a moment, then restores whatever label it

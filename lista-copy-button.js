@@ -19,7 +19,7 @@
  * four.
  *
  * Depends on: content-utils.js (log, sendMessage, getSettings,
- * showCopiedFeedback), detailed-format.js (buildDetailedLine,
+ * showCopiedFeedback, applySamvStyle), detailed-format.js (buildDetailedLine,
  * buildSectionedText, QUALIDADE_SIGLAS, IDIOMA_SIGLAS), lista-defaults.js
  * (isListaCardsPage)
  */
@@ -199,6 +199,10 @@ function injectCopyListaButton(initialOptions) {
 
   const button = wrap.querySelector("#lgm-copy-lista-btn");
   const panel = wrap.querySelector("#lgm-copy-lista-panel");
+  applySamvStyle(button);
+  // The panel's own confirm button is ours too, so it gets the same colour
+  // rather than sitting there in the site's default styling.
+  applySamvStyle(wrap.querySelector("#lgm-copy-lista-confirm"));
 
   button.addEventListener("click", (event) => {
     event.stopPropagation();
