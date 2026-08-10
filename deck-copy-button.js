@@ -48,33 +48,40 @@ async function copyDeckList(deckId, button) {
 }
 
 /**
- * Rewires the existing "Gerar Imagem" button in place. No-ops if it's
- * already been replaced, or if it isn't there to begin with (some decks may
- * not render it).
+ * Swaps the "Gerar Imagem" button for our own "Copiar Deck" one. No-ops if
+ * there's nothing to replace (some decks don't render it).
  *
- * Removing the inline onclick attribute alone isn't enough: the page also
- * binds its own click handler(s) to this element via JS (opening its image
- * modal), which `removeAttribute("onclick")` doesn't touch. Cloning the node
- * drops every previously attached listener — inline and JS-bound alike —
- * leaving a clean element to attach our own handler to. stopPropagation is
- * added as a second safety net in case the page instead uses an
- * event-delegated listener on an ancestor (keyed off the shared
- * "tab-gerar-img" class, which we intentionally keep for styling).
+ * The replacement is a brand new element rather than a clone of the
+ * original, and deliberately does NOT carry the "tab-gerar-img" class. That
+ * class is what the page keys its image-modal binding off: reusing it meant
+ * the page re-attached that handler to our button after we'd put it in
+ * place, so clicking "Copiar Deck" copied the deck *and* popped the "Imagem
+ * do Deck" modal. Neither dropping the inline onclick nor cloning the node
+ * helps, since the binding happens after we're done.
+ *
+ * Nothing is lost by leaving the class off: every bit of the button's
+ * styling comes from "tab-comprar" (the same class the sibling "Comprar
+ * Deck" button uses on its own), verified by comparing computed styles with
+ * and without it.
  */
 function replaceGerarImagemButton(deckId) {
   const tabBar = document.getElementById("deck-tab");
   const original = tabBar?.querySelector(".tab-comprar.tab-gerar-img");
-  if (!original || original.dataset.copyDeckReplaced) return;
+  if (!original) return;
 
-  const button = original.cloneNode(true);
-  button.removeAttribute("onclick");
+  // If the page re-rendered its own button back in next to ours, drop it
+  // rather than ending up with two.
+  if (tabBar.querySelector("[data-copy-deck-button]")) {
+    original.remove();
+    return;
+  }
+
+  const button = document.createElement("div");
+  button.className = "tab-comprar";
+  button.dataset.copyDeckButton = "1";
   button.textContent = "Copiar Deck";
-  button.dataset.copyDeckReplaced = "1";
   applySamvStyle(button);
-  button.addEventListener("click", (event) => {
-    event.stopPropagation();
-    copyDeckList(deckId, button);
-  });
+  button.addEventListener("click", () => copyDeckList(deckId, button));
   original.replaceWith(button);
 
   log('Replaced "Gerar Imagem" with "Copiar Deck".');
