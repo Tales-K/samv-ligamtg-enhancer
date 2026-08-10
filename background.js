@@ -584,7 +584,6 @@ async function handleScrapeStoresFromPage(tabId) {
     }
   }
   if (changed) await saveStoreIdCache(cache);
-  console.log("[LigaMagic Tracker]", `Scraped ${scrapedStores.length} store(s) from page.`);
 
   // A single page load can fire this multiple times (e.g. several tabs
   // completing around the same moment), and each call would otherwise start

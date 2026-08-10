@@ -8,7 +8,7 @@
  * content-utils.js for the ligamagic.com.br bundle.
  */
 
-const IS_LOCAL = true; // set to false in production builds
+const IS_LOCAL = false; // set to false in production builds
 
 function createLogger(siteName) {
   return (...args) => {

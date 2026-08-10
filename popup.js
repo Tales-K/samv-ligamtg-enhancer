@@ -1,4 +1,4 @@
-const IS_LOCAL = true; // set to false in production builds
+const IS_LOCAL = false; // set to false in production builds
 
 // ── DOM ──────────────────────────────────────────────────────────────────────
 const todayCountEl = document.getElementById("todayCount");

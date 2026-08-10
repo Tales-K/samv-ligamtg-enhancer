@@ -4,7 +4,7 @@
  * to scraper-deck.js, scraper-card.js, and content.js.
  */
 
-const IS_LOCAL = true; // set to false in production builds
+const IS_LOCAL = false; // set to false in production builds
 
 function log(...args) {
   if (IS_LOCAL) console.log("[LigaMagic Tracker]", ...args);
