@@ -163,11 +163,18 @@ function watchAndRememberSelections(container) {
 }
 
 /**
- * Adds a "Carregar filtro padrão" button just above the site's own "Mudar
- * para Busca Detalhada" link, applying the values configured in the popup on
- * demand. Useful whenever the filters aren't applied automatically (mode
- * "off"/"remember") or the user has since changed them by hand and wants to
- * get back to their own defaults.
+ * Adds a "Carregar filtro padrão" button directly above the site's own
+ * "Mudar para Busca Detalhada" link, applying the values configured in the
+ * popup on demand. Useful whenever the filters aren't applied automatically
+ * (mode "off"/"remember") or the user has since changed them by hand and
+ * wants to get back to their own defaults.
+ *
+ * That link is `position: absolute; top: 0; right: 0` inside the step's
+ * content box, so it is out of the normal flow entirely — a button inserted
+ * before it in the markup lands under the filters block instead, next to
+ * "Adicione a lista de cards". Both are therefore stacked inside one
+ * absolutely positioned corner box that takes over the link's spot, letting
+ * ordinary flow put ours on top without hardcoding any offsets.
  */
 function injectLoadDefaultsButton(container) {
   if (container.querySelector("#lgm-load-defaults-btn")) return;
@@ -180,8 +187,7 @@ function injectLoadDefaultsButton(container) {
   button.className = "botao";
   button.textContent = "Carregar filtro padrão";
   button.title = "Aplicar os filtros configurados nas opções da extensão";
-  button.style.cssText =
-    "cursor: pointer; display: inline-block; margin-bottom: 6px; white-space: nowrap;";
+  button.style.cssText = "cursor: pointer; white-space: nowrap;";
   applySamvStyle(button);
 
   button.addEventListener("click", () => {
@@ -194,7 +200,16 @@ function injectLoadDefaultsButton(container) {
     });
   });
 
-  detailedLink.insertAdjacentElement("beforebegin", button);
+  const corner = document.createElement("div");
+  corner.id = "lgm-lista-corner";
+  corner.style.cssText =
+    "position: absolute; top: 0; right: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 4px;";
+
+  detailedLink.replaceWith(corner);
+  corner.append(button, detailedLink);
+  // Now that it lives inside the corner box, the link stacks below our
+  // button in normal flow instead of pinning itself to the same corner.
+  detailedLink.style.setProperty("position", "static");
 }
 
 let listaCardsApplied = false;
