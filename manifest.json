@@ -33,6 +33,12 @@
   "content_scripts": [
     {
       "matches": ["*://*.ligamagic.com.br/*"],
+      "js": ["lista-favorites-guard.js"],
+      "world": "MAIN",
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["*://*.ligamagic.com.br/*"],
       "css": ["content.css"],
       "js": ["content-utils.js", "detailed-format.js", "nav-menu.js", "scraper-deck.js", "deck-view.js", "deck-copy-button.js", "lista-defaults.js", "store-search-override.js", "lista-copy-button.js", "carrinho-copy-button.js", "card-hover-links.js", "scraper-card.js", "content.js"]
     },
