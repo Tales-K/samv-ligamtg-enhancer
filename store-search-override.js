@@ -185,6 +185,21 @@ function looksLikeUrl(text) {
   return /^(https?:\/\/)?([a-z0-9-]+\.)+[a-z]{2,}(\/\S*)?$/i.test(text);
 }
 
+/**
+ * Synchronous counterpart to background.js's parseStoreUrl+stripWww: same
+ * normalization (scheme optional, "www." ignored), but has to be duplicated
+ * rather than shared, since it runs client-side, with zero awaits, right
+ * before a possible chrome.permissions.request() call — see handleAddClick.
+ */
+function normalizeStoreDomain(rawUrl) {
+  try {
+    const url = new URL(/^https?:\/\//i.test(rawUrl) ? rawUrl : `https://${rawUrl}`);
+    return url.hostname.replace(/^www\./, "");
+  } catch {
+    return null;
+  }
+}
+
 /** Progress messages read as normal text; anything that went wrong shows in red. */
 function setStatus(statusEl, text, { isError = false } = {}) {
   statusEl.textContent = text;
@@ -201,6 +216,20 @@ async function handleAddClick() {
 
   if (!looksLikeUrl(url)) {
     setStatus(statusEl, "Escolha uma loja da lista ou digite o link dela (ex.: sualoja.com.br).", { isError: true });
+    return;
+  }
+
+  // A pasted URL for a store already in the known-stores list (loaded
+  // client-side, so this check is synchronous) needs neither a permission
+  // prompt nor a tab — same shortcut picking it from the dropdown already
+  // gets. This has to be a plain synchronous lookup, not an awaited one:
+  // requestStorePermissions below must stay the first await in this
+  // function for the domains that actually do need it (see its comment).
+  const domain = normalizeStoreDomain(url);
+  const known = domain && knownStores.find((s) => s.domain === domain);
+  if (known) {
+    input.value = "";
+    await addStoreToChecklist(known);
     return;
   }
 
