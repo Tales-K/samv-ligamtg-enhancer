@@ -126,6 +126,7 @@ document.addEventListener("DOMContentLoaded", () => {
     "removeLeiloesTab",
     "removeForumTab",
     "replaceGerarImagemWithCopiarDeck",
+    "addCardHoverLinks",
     "rememberListaFilters",
     "addLoadDefaultsButton",
     "enableCustomStoreSearch",
