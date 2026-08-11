@@ -1,20 +1,21 @@
 /**
  * Applies filter values to the "Compra por Lista" page (?view=cards/lista)
  * — but only for the simple search step (div.passo-lista-cards.busca-simples),
- * never for "Busca Detalhada" — according to the "listaCards.mode" setting:
+ * never for "Busca Detalhada".
  *
- *   "off"      — do nothing.
- *   "defaults" — apply the fixed values configured in the popup.
- *   "remember" — reapply whatever was last manually selected on this page,
- *                and keep capturing future manual changes for next time.
+ * On load it applies the values configured in the popup, unless
+ * "rememberListaFilters" is on, in which case it reapplies whatever was last
+ * manually selected here and keeps capturing further changes for next time.
+ * Either way it also injects the "Carregar filtro padrão" button, which
+ * applies the configured values again on demand.
  *
  * All target fields (Idiomas, Extras, Qualidade, and the two bottom
  * checkboxes) are expected inside that container; a document-wide fallback
  * is used only if a field isn't found there, in case some of them turn out
  * to be siblings rather than nested inside it.
  *
- * In "defaults"/initial "remember" mode, values are applied at most once per
- * page load — the user's own edits afterward are never touched or reverted.
+ * Values are applied at most once per page load — the user's own edits
+ * afterward are never touched or reverted.
  *
  * Depends on: content-utils.js (log, waitForElement, applySamvStyle,
  * showCopiedFeedback)
@@ -244,22 +245,24 @@ function tryApplyListaCardsDefaults() {
   // Mark as applied immediately — this must run at most once per page load,
   // regardless of what the fetched settings turn out to be.
   listaCardsApplied = true;
-  injectLoadDefaultsButton(container);
 
   chrome.runtime.sendMessage({ action: "getSettings" }, (settings) => {
     const cfg = settings?.listaCards;
-    if (!cfg || cfg.mode === "off") return;
+    if (!cfg) return;
 
-    if (cfg.mode === "defaults") {
-      applyListaCardsValues(container, cfg);
-      log("Applied Compra por Lista default filters.");
-    } else if (cfg.mode === "remember") {
+    if (settings.addLoadDefaultsButton !== false) injectLoadDefaultsButton(container);
+
+    if (settings.rememberListaFilters) {
       if (cfg.lastUsed) {
         applyListaCardsValues(container, cfg.lastUsed);
         log("Applied last-used Compra por Lista filters.");
       }
       watchAndRememberSelections(container);
+      return;
     }
+
+    applyListaCardsValues(container, cfg);
+    log("Applied Compra por Lista default filters.");
   });
 
   return true;

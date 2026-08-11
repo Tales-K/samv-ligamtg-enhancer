@@ -674,6 +674,8 @@ const DEFAULT_SETTINGS = {
   removeForumTab: true, // whether the "Fórum" tab is removed from the main menu
   replaceGerarImagemWithCopiarDeck: true, // whether "Gerar Imagem" becomes "Copiar Deck" on deck pages
   enableCustomStoreSearch: true, // whether the "Lojas Customizadas" section is injected into Compra por Lista
+  addLoadDefaultsButton: true, // whether the "Carregar filtro padrão" button is injected into Compra por Lista
+  rememberListaFilters: false, // reapply the last manual filter selection on load, instead of the configured defaults
   addCopyListaButton: true, // whether the "Copiar Lista de Compras" button is injected into Compra por Lista results
   addCarrinhoCopyButton: true, // whether the "Copiar Lista" button is injected into the cart's shopping list
   // How "Copiar Lista de Compras" formats each card line, remembered across
@@ -695,7 +697,6 @@ const DEFAULT_SETTINGS = {
   // and/or English, extras allowed, HP or better, and nothing that can't be
   // bought right now.
   listaCards: {
-    mode: "defaults", // "off" (don't touch) | "remember" (reapply last manual selection) | "defaults" (apply the fields below)
     idiomaMode: "escolher", // "" | "todos" | "escolher"
     idiomas: ["2", "8", "11"], // txt_idioma[] values (Inglês, Português, Português/Inglês), only used when idiomaMode === "escolher"
     extrasMode: "pode", // "" | "pode" | "sem" | "definir"
@@ -723,9 +724,20 @@ async function loadSettings() {
   return { ...DEFAULT_SETTINGS, ...settings };
 }
 
-async function saveSettings(partial) {
-  const current = await loadSettings();
-  await chrome.storage.local.set({ settings: { ...current, ...partial } });
+// Saving is read-modify-write, so two writes in flight at once can lose an
+// update: the second reads the settings before the first has stored them and
+// then writes its own copy back over the top. That's easy to trigger from the
+// popup, where one panel mixes plain checkboxes with the nested filter config
+// — toggling two of them in quick succession is enough. Chaining the writes
+// means each one reads what the previous just stored.
+let settingsWrites = Promise.resolve();
+
+function saveSettings(partial) {
+  settingsWrites = settingsWrites.then(async () => {
+    const current = await loadSettings();
+    await chrome.storage.local.set({ settings: { ...current, ...partial } });
+  });
+  return settingsWrites;
 }
 
 // Price cache — keyed by card name. Only entries with updatedAt = today are

@@ -285,29 +285,13 @@
     }
 
     /* ── Lista de Cards defaults ────────────────────────── */
-    .lc-details {
-      margin-top: 6px;
-    }
-
-    .lc-details > summary {
-      cursor: pointer;
-      font-size: 11px;
-      font-weight: 600;
-      color: #a78bfa;
-      list-style: none;
-      padding: 2px 0;
-    }
-
-    .lc-details > summary::-webkit-details-marker {
-      display: none;
-    }
-
-    .lc-details > summary::before {
-      content: "▸ ";
-    }
-
-    .lc-details[open] > summary::before {
-      content: "▾ ";
+    /* The filter card spans the full width, so its fields sit side by side
+       instead of stacking the way they did inside the old dropdown. */
+    .lc-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0 16px;
+      align-items: start;
     }
 
     .lc-field {
@@ -667,16 +651,17 @@
         </div>
       </div>
 
-      <div class="settings-card settings-card-full">
+      <div class="settings-card">
         <div class="section-title">Compra por Lista</div>
         <div class="settings-group">
-          <div class="settings-row settings-row-select" title="Define o comportamento dos filtros (Idiomas, Extras, Qualidade, etc.) ao carregar a página 'Compra por Lista' no LigaMagic.">
-            <label for="listaCardsMode">Filtros automáticos</label>
-            <select id="listaCardsMode">
-              <option value="off">Não alterar</option>
-              <option value="remember">Usar últimos valores selecionados</option>
-              <option value="defaults">Aplicar valores padrão automaticamente</option>
-            </select>
+          <div class="settings-row" title="Ao abrir a página 'Compra por Lista', reaplica os filtros exatamente como você os deixou da última vez, em vez dos valores padrão configurados abaixo.">
+            <input type="checkbox" id="rememberListaFilters" />
+            <label for="rememberListaFilters">Usar últimos valores selecionados</label>
+          </div>
+
+          <div class="settings-row" title="Adiciona o botão 'Carregar filtro padrão' na página 'Compra por Lista', que aplica os valores configurados abaixo quando você quiser.">
+            <input type="checkbox" id="addLoadDefaultsButton" />
+            <label for="addLoadDefaultsButton">Botão "Carregar filtro padrão"</label>
           </div>
 
           <div class="settings-row" title="Adiciona um campo pra colar a URL de uma loja na página 'Compra por Lista', pra incluir lojas específicas na busca sem mexer nos seus favoritos reais.">
@@ -693,10 +678,13 @@
             <input type="checkbox" id="addCarrinhoCopyButton" />
             <label for="addCarrinhoCopyButton">Botão "Copiar Lista" no carrinho</label>
           </div>
+        </div>
+      </div>
 
-          <details class="lc-details" id="lcDetails" title="Valores aplicados na página 'Compra por Lista' quando 'Filtros automáticos' estiver em 'Aplicar valores padrão automaticamente'.">
-            <summary>Configurar campos</summary>
-
+      <div class="settings-card settings-card-full" id="lcFiltersCard">
+        <div class="section-title">Filtro padrão da Compra por Lista</div>
+        <div class="settings-group">
+          <div class="lc-grid">
             <div class="lc-field">
               <div class="lc-field-label">Idiomas</div>
               <select id="lcIdiomaMode">
@@ -761,6 +749,7 @@
             </div>
 
             <div class="lc-field">
+              <div class="lc-field-label">Disponibilidade</div>
               <div class="settings-row">
                 <input type="checkbox" id="lcIgnorarSemEstoque" />
                 <label for="lcIgnorarSemEstoque">Ignorar cards Sem Estoque</label>
@@ -770,7 +759,7 @@
                 <label for="lcIgnorarPreOrder">Ignorar cards em Pre Order</label>
               </div>
             </div>
-          </details>
+          </div>
         </div>
       </div>
 

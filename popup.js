@@ -126,6 +126,8 @@ document.addEventListener("DOMContentLoaded", () => {
     "removeLeiloesTab",
     "removeForumTab",
     "replaceGerarImagemWithCopiarDeck",
+    "rememberListaFilters",
+    "addLoadDefaultsButton",
     "enableCustomStoreSearch",
     "addCopyListaButton",
     "addCarrinhoCopyButton",
@@ -142,6 +144,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const el = document.getElementById(id);
       if (el) el.value = settings[id] ?? "";
     });
+    syncFiltersCardVisibility();
   });
 
   // Persist any checkbox change immediately.
@@ -153,6 +156,12 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     });
   });
+
+  // The filter fields only mean anything while the button that applies them
+  // is around, so the whole card follows that toggle.
+  document
+    .getElementById("addLoadDefaultsButton")
+    .addEventListener("change", syncFiltersCardVisibility);
 
   // Persist any select change immediately.
   selectIds.forEach((id) => {
@@ -167,6 +176,11 @@ document.addEventListener("DOMContentLoaded", () => {
   initListaCardsSettings();
   initDisclaimer();
 });
+
+function syncFiltersCardVisibility() {
+  const enabled = document.getElementById("addLoadDefaultsButton").checked;
+  document.getElementById("lcFiltersCard").style.display = enabled ? "" : "none";
+}
 
 // ── First-open disclaimer ───────────────────────────────────────────────────
 function initDisclaimer() {
@@ -208,8 +222,6 @@ function initDisclaimer() {
  * switching the mode away from that clears the corresponding checkboxes.
  */
 function initListaCardsSettings() {
-  const modeEl = document.getElementById("listaCardsMode");
-  const detailsEl = document.getElementById("lcDetails");
   const idiomaModeEl = document.getElementById("lcIdiomaMode");
   const idiomasListEl = document.getElementById("lcIdiomasList");
   const extrasModeEl = document.getElementById("lcExtrasMode");
@@ -224,10 +236,6 @@ function initListaCardsSettings() {
   // here) — keep whatever was last loaded so saving this form never wipes it.
   let lastUsed = {};
 
-  function updateDetailsVisibility() {
-    detailsEl.style.display = modeEl.value === "defaults" ? "" : "none";
-  }
-
   function updateIdiomaVisibility() {
     idiomasListEl.style.display = idiomaModeEl.value === "escolher" ? "" : "none";
   }
@@ -238,7 +246,6 @@ function initListaCardsSettings() {
 
   function collectConfig() {
     return {
-      mode: modeEl.value,
       idiomaMode: idiomaModeEl.value,
       idiomas: idiomaChecks.filter((el) => el.checked).map((el) => el.dataset.value),
       extrasMode: extrasModeEl.value,
@@ -261,27 +268,21 @@ function initListaCardsSettings() {
   chrome.runtime.sendMessage({ action: "getSettings" }, (settings) => {
     const lc = settings?.listaCards ?? {};
     lastUsed = lc.lastUsed ?? {};
-    modeEl.value = lc.mode ?? "off";
     idiomaModeEl.value = lc.idiomaMode ?? "";
     extrasModeEl.value = lc.extrasMode ?? "";
     qualidadeEl.value = lc.qualidade ?? "";
     ignorarSemEstoqueEl.checked = lc.ignorarSemEstoque ?? true;
-    ignorarPreOrderEl.checked = lc.ignorarPreOrder ?? false;
+    ignorarPreOrderEl.checked = lc.ignorarPreOrder ?? true;
 
     const wantedIdiomas = new Set(lc.idiomas ?? []);
     idiomaChecks.forEach((el) => (el.checked = wantedIdiomas.has(el.dataset.value)));
     const wantedExtras = new Set(lc.extras ?? []);
     extraChecks.forEach((el) => (el.checked = wantedExtras.has(el.dataset.value)));
 
-    updateDetailsVisibility();
     updateIdiomaVisibility();
     updateExtrasVisibility();
   });
 
-  modeEl.addEventListener("change", () => {
-    updateDetailsVisibility();
-    saveConfig();
-  });
   qualidadeEl.addEventListener("change", saveConfig);
   ignorarSemEstoqueEl.addEventListener("change", saveConfig);
   ignorarPreOrderEl.addEventListener("change", saveConfig);
