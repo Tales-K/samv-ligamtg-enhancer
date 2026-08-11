@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "SAMV LigaMtg Enhancer",
-  "version": "1.1.0",
-  "description": "Aprimorador não oficial do LigaMagic feito pela Sociedade Amigos do Vale (SAMV): preços em reais no Archidekt/Moxfield/Scryfall e melhorias de navegação no próprio LigaMagic.",
+  "version": "1.2.0",
+  "description": "Aprimorador não oficial do LigaMagic: preços em reais no Archidekt, Moxfield e Scryfall e melhorias de navegação.",
   "permissions": ["activeTab", "storage", "scripting"],
   "host_permissions": [
     "*://*.ligamagic.com.br/*",
@@ -18,17 +18,17 @@
     "default_popup": "popup.html",
     "default_title": "SAMV LigaMtg Enhancer",
     "default_icon": {
-      "16": "icon.png",
-      "32": "icon.png",
-      "48": "icon.png",
-      "128": "icon.png"
+      "16": "icon-16.png",
+      "32": "icon-32.png",
+      "48": "icon-48.png",
+      "128": "icon-128.png"
     }
   },
   "icons": {
-    "16": "icon.png",
-    "32": "icon.png",
-    "48": "icon.png",
-    "128": "icon.png"
+    "16": "icon-16.png",
+    "32": "icon-32.png",
+    "48": "icon-48.png",
+    "128": "icon-128.png"
   },
   "content_scripts": [
     {
