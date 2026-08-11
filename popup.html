@@ -636,16 +636,18 @@
           </div>
           <div class="settings-row settings-row-select" title="Define qual aba (Padrão, Cor, Preço, etc.) abre automaticamente ao visitar a página de um deck no LigaMagic.">
             <label for="defaultDeckView">Visualização padrão</label>
+            <!-- Same order the tabs appear in on the deck page, where the
+                 injected "Preço" tab sits right after "Padrão". -->
             <select id="defaultDeckView">
               <option value="">Padrão do LigaMagic</option>
               <option value="1">Padrão</option>
+              <option value="price">Preço</option>
               <option value="2">Cor</option>
               <option value="3">Custo</option>
               <option value="4">Raridade</option>
               <option value="5">Visual</option>
               <option value="8">Grid</option>
               <option value="6">CMC</option>
-              <option value="price">Preço</option>
             </select>
           </div>
         </div>
