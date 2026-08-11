@@ -14,7 +14,8 @@
 },
 {
 "id": "231947",
-"name": "Akagami"
+"name": "Akagami",
+"domain": "akagami.com.br"
 },
 {
 "id": "550956",
@@ -42,7 +43,8 @@
 },
 {
 "id": "254515",
-"name": "Ataraxia Cards"
+"name": "Ataraxia Cards",
+"domain": "ataraxiacards.com.br"
 },
 {
 "id": "4342",
@@ -212,7 +214,8 @@
 },
 {
 "id": "243540",
-"name": "Condado Hobby"
+"name": "Condado Hobby",
+"domain": "condado.net.br"
 },
 {
 "id": "812866",
@@ -259,11 +262,13 @@
 },
 {
 "id": "233103",
-"name": "Delirum Cards"
+"name": "Delirum Cards",
+"domain": "deliriumcards.com.br"
 },
 {
 "id": "537451",
-"name": "Delta Card Store"
+"name": "Delta Card Store",
+"domain": "deltacardstore.com.br"
 },
 {
 "id": "648387",
@@ -295,7 +300,8 @@
 },
 {
 "id": "603507",
-"name": "Empório das Cartas"
+"name": "Empório das Cartas",
+"domain": "emporiotcg.com.br"
 },
 {
 "id": "461",
@@ -304,7 +310,8 @@
 },
 {
 "id": "265520",
-"name": "Epic Game Santos"
+"name": "Epic Game Santos",
+"domain": "epicgamesantos.com.br"
 },
 {
 "id": "20054",
@@ -328,7 +335,8 @@
 },
 {
 "id": "258032",
-"name": "Faraway - Jogos e Desafios"
+"name": "Faraway - Jogos e Desafios",
+"domain": "lojafaraway.com.br"
 },
 {
 "id": "45754",
@@ -390,11 +398,13 @@
 },
 {
 "id": "531635",
-"name": "GAST"
+"name": "GAST",
+"domain": "gastmtg.com.br"
 },
 {
 "id": "228838",
-"name": "Geek Side Shop"
+"name": "Geek Side Shop",
+"domain": "geeksideshop.com.br"
 },
 {
 "id": "702687",
@@ -408,7 +418,8 @@
 },
 {
 "id": "242400",
-"name": "Gladiators TCG"
+"name": "Gladiators TCG",
+"domain": "gladiatorstcg.com.br"
 },
 {
 "id": "108628",
@@ -435,11 +446,13 @@
 },
 {
 "id": "239718",
-"name": "Habitat Geek"
+"name": "Habitat Geek",
+"domain": "habitatgeek.com.br"
 },
 {
 "id": "601739",
-"name": "Hard Cast"
+"name": "Hard Cast",
+"domain": "hardcast.com.br"
 },
 {
 "id": "493213",
@@ -499,7 +512,8 @@
 },
 {
 "id": "263953",
-"name": "King Play Games"
+"name": "King Play Games",
+"domain": "kingplaygames.com.br"
 },
 {
 "id": "859",
@@ -532,7 +546,8 @@
 },
 {
 "id": "590634",
-"name": "Life Players Fun Store"
+"name": "Life Players Fun Store",
+"domain": "lifeplayers.com.br"
 },
 {
 "id": "29270",
@@ -566,7 +581,8 @@
 },
 {
 "id": "525592",
-"name": "Loja Fantasma Card Game"
+"name": "Loja Fantasma Card Game",
+"domain": "lojafantasma.com.br"
 },
 {
 "id": "55635",
@@ -579,7 +595,8 @@
 },
 {
 "id": "531137",
-"name": "Lord of Cards"
+"name": "Lord of Cards",
+"domain": "lordofcards.net.br"
 },
 {
 "id": "103975",
@@ -631,6 +648,10 @@
 "domain": "manatap.com.br"
 },
 {
+"id": "867129",
+"name": "Mana Uai Cardshop"
+},
+{
 "id": "62691",
 "name": "ManaFix.net",
 "domain": "manafix.net"
@@ -671,7 +692,8 @@
 },
 {
 "id": "608919",
-"name": "Mercadia Game Store"
+"name": "Mercadia Game Store",
+"domain": "mercadiastore.com.br"
 },
 {
 "id": "148552",
@@ -708,7 +730,8 @@
 },
 {
 "id": "840739",
-"name": "Moinho Games"
+"name": "Moinho Games",
+"domain": "moinhogames.com.br"
 },
 {
 "id": "39542",
@@ -830,7 +853,8 @@
 },
 {
 "id": "227786",
-"name": "Olho de Leão"
+"name": "Olho de Leão",
+"domain": "olhodeleaocard.com.br"
 },
 {
 "id": "669854",
@@ -925,7 +949,8 @@
 },
 {
 "id": "225853",
-"name": "RADIOATIVA"
+"name": "RADIOATIVA",
+"domain": "lojaradioativa.com.br"
 },
 {
 "id": "155937",
@@ -1033,7 +1058,8 @@
 },
 {
 "id": "228884",
-"name": "Taverna De Avalon Geek Store"
+"name": "Taverna De Avalon Geek Store",
+"domain": "tavernadeavalon.com.br"
 },
 {
 "id": "142722",
@@ -1042,7 +1068,8 @@
 },
 {
 "id": "589696",
-"name": "Taverna Games"
+"name": "Taverna Games",
+"domain": "lojatavernagames.com.br"
 },
 {
 "id": "673241",
@@ -1066,7 +1093,8 @@
 },
 {
 "id": "608119",
-"name": "Token Treasure"
+"name": "Token Treasure",
+"domain": "tokentreasure.com.br"
 },
 {
 "id": "82783",
@@ -1075,7 +1103,8 @@
 },
 {
 "id": "591944",
-"name": "Torre de Mana"
+"name": "Torre de Mana",
+"domain": "torredemana.com.br"
 },
 {
 "id": "147546",
@@ -1153,11 +1182,13 @@
 },
 {
 "id": "817192",
-"name": "Whiplash Game Labs"
+"name": "Whiplash Game Labs",
+"domain": "whiplashgamelabs.com.br"
 },
 {
 "id": "603590",
-"name": "Witch Card Shop"
+"name": "Witch Card Shop",
+"domain": "witchcardshop.com.br"
 },
 {
 "id": "46336",
