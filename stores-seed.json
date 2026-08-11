@@ -1,7 +1,8 @@
 [
 {
 "id": "501179",
-"name": "5Colors"
+"name": "5Colors",
+"domain": "5colors.com.br"
 },
 {
 "id": "34996",
@@ -24,7 +25,8 @@
 },
 {
 "id": "479514",
-"name": "Ancestral Cards"
+"name": "Ancestral Cards",
+"domain": "ancestralcards.com.br"
 },
 {
 "id": "133134",
@@ -73,7 +75,8 @@
 },
 {
 "id": "490654",
-"name": "Base gamestore"
+"name": "Base gamestore",
+"domain": "basegamestore.com.br"
 },
 {
 "id": "20513",
@@ -87,7 +90,8 @@
 },
 {
 "id": "611044",
-"name": "Black Game House"
+"name": "Black Game House",
+"domain": "blackgamehouse.com.br"
 },
 {
 "id": "33298",
@@ -101,11 +105,13 @@
 },
 {
 "id": "288864",
-"name": "Bolsa do Infinito"
+"name": "Bolsa do Infinito",
+"domain": "bolsadoinfinito.com.br"
 },
 {
 "id": "649187",
-"name": "Buraco Do Rato TCG"
+"name": "Buraco Do Rato TCG",
+"domain": "buracodorato.com.br"
 },
 {
 "id": "43947",
@@ -144,11 +150,13 @@
 },
 {
 "id": "787572",
-"name": "Cartinhas Cards"
+"name": "Cartinhas Cards",
+"domain": "cartinhascards.com.br"
 },
 {
 "id": "292333",
-"name": "Casa de Ruter"
+"name": "Casa de Ruter",
+"domain": "casaderuter.com.br"
 },
 {
 "id": "36288",
@@ -157,11 +165,13 @@
 },
 {
 "id": "629936",
-"name": "Cat Geek Games"
+"name": "Cat Geek Games",
+"domain": "catgeekcardgames.com.br"
 },
 {
 "id": "483428",
-"name": "Caverna do Basdão"
+"name": "Caverna do Basdão",
+"domain": "cavernadobasdao.com.br"
 },
 {
 "id": "330736",
@@ -185,7 +195,8 @@
 },
 {
 "id": "523236",
-"name": "Cidadela Card Games"
+"name": "Cidadela Card Games",
+"domain": "cidadelacardgames.com.br"
 },
 {
 "id": "293291",
@@ -219,7 +230,8 @@
 },
 {
 "id": "812866",
-"name": "Counter Game House"
+"name": "Counter Game House",
+"domain": "countergamehouse.com.br"
 },
 {
 "id": "576306",
@@ -258,7 +270,8 @@
 },
 {
 "id": "758958",
-"name": "Dekyen Arena"
+"name": "Dekyen Arena",
+"domain": "dekyenarena.com.br"
 },
 {
 "id": "233103",
@@ -272,11 +285,13 @@
 },
 {
 "id": "648387",
-"name": "DM Geek Store"
+"name": "DM Geek Store",
+"domain": "dmgeekstore.com.br"
 },
 {
 "id": "645953",
-"name": "Domain Rio Preto"
+"name": "Domain Rio Preto",
+"domain": "domainriopreto.com.br"
 },
 {
 "id": "174186",
@@ -350,7 +365,8 @@
 },
 {
 "id": "638558",
-"name": "Fog Cards"
+"name": "Fog Cards",
+"domain": "fogcards.com.br"
 },
 {
 "id": "31292",
@@ -394,7 +410,8 @@
 },
 {
 "id": "485727",
-"name": "Garagem do Nerd"
+"name": "Garagem do Nerd",
+"domain": "garagemdonerdtcg.com.br"
 },
 {
 "id": "531635",
@@ -438,11 +455,13 @@
 },
 {
 "id": "640217",
-"name": "Gradd"
+"name": "Gradd",
+"domain": "graddcards.com.br"
 },
 {
 "id": "508550",
-"name": "Guilda Geek Games"
+"name": "Guilda Geek Games",
+"domain": "guildastore.com.br"
 },
 {
 "id": "239718",
@@ -456,7 +475,8 @@
 },
 {
 "id": "493213",
-"name": "Hobbit House"
+"name": "Hobbit House",
+"domain": "hobbithouse.com.br"
 },
 {
 "id": "29617",
@@ -489,11 +509,13 @@
 },
 {
 "id": "715850",
-"name": "iSpot"
+"name": "iSpot",
+"domain": "iispot.com.br"
 },
 {
 "id": "277633",
-"name": "Ja era Hora!"
+"name": "Ja era Hora!",
+"domain": "jaerahora.com.br"
 },
 {
 "id": "144879",
@@ -527,7 +549,8 @@
 },
 {
 "id": "801263",
-"name": "LANZA TCG "
+"name": "LANZA TCG ",
+"domain": "lanzatcg.com.br"
 },
 {
 "id": "26240",
@@ -615,7 +638,8 @@
 },
 {
 "id": "270308",
-"name": "Lumus Jogos e Colecionaveis"
+"name": "Lumus Jogos e Colecionaveis",
+"domain": "lumuss.com.br"
 },
 {
 "id": "4545",
@@ -663,7 +687,8 @@
 },
 {
 "id": "649194",
-"name": "Mardu Card Shop"
+"name": "Mardu Card Shop",
+"domain": "marducardshop.com.br"
 },
 {
 "id": "81670",
@@ -712,7 +737,8 @@
 },
 {
 "id": "478579",
-"name": "MINT & HOOD CARD GAMES"
+"name": "MINT & HOOD CARD GAMES",
+"domain": "minthood.com.br"
 },
 {
 "id": "62881",
@@ -726,7 +752,8 @@
 },
 {
 "id": "517029",
-"name": "Mochila Geek"
+"name": "Mochila Geek",
+"domain": "mochilageek.com.br"
 },
 {
 "id": "840739",
@@ -805,7 +832,8 @@
 },
 {
 "id": "727418",
-"name": "Nerdz Cards Floripa"
+"name": "Nerdz Cards Floripa",
+"domain": "nerdzcardsfloripa.com.br"
 },
 {
 "id": "61957",
@@ -844,7 +872,8 @@
 },
 {
 "id": "497250",
-"name": "O Rei das Cartinhas"
+"name": "O Rei das Cartinhas",
+"domain": "reidascartinhas.com.br"
 },
 {
 "id": "63172",
@@ -863,7 +892,8 @@
 },
 {
 "id": "506428",
-"name": "ORC SHOP"
+"name": "ORC SHOP",
+"domain": "orcshop.com.br"
 },
 {
 "id": "50408",
@@ -876,7 +906,8 @@
 },
 {
 "id": "662762",
-"name": "Pac Deck Card Games"
+"name": "Pac Deck Card Games",
+"domain": "pacdeck.com.br"
 },
 {
 "id": "8602",
@@ -920,7 +951,8 @@
 },
 {
 "id": "508647",
-"name": "PK CENTER"
+"name": "PK CENTER",
+"domain": "pkcentertcg.com.br"
 },
 {
 "id": "57673",
@@ -964,7 +996,8 @@
 },
 {
 "id": "754612",
-"name": "Saga TCG"
+"name": "Saga TCG",
+"domain": "sagatcg.com.br"
 },
 {
 "id": "39828",
@@ -1128,7 +1161,8 @@
 },
 {
 "id": "767399",
-"name": "Triade TCG"
+"name": "Triade TCG",
+"domain": "triadetcg.com.br"
 },
 {
 "id": "127399",
