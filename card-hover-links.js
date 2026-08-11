@@ -57,7 +57,8 @@ function cardNameFromStickyLazy(el) {
 
 /** Builds the two-button bar once, right after .stickyloadedimgs -- the box
  * has no fixed height or overflow:hidden, so it grows to fit whatever comes
- * after the image. */
+ * after the image. Called on the first card hover rather than at start-up,
+ * so pages that never show a card tooltip get no bar at all. */
 function injectCardLinksBar(box) {
   if (box.querySelector(`#${CARD_LINKS_BAR_ID}`)) return;
 
@@ -92,12 +93,16 @@ function injectCardLinksBar(box) {
     bar.appendChild(link);
   });
 
+  // The bar has to end up inside the box, so it's hidden along with it:
+  // "afterend" of the box itself would leave it sitting loose in the page.
   const loadedImgs = box.querySelector(".stickyloadedimgs");
-  (loadedImgs ?? box).insertAdjacentElement("afterend", bar);
+  if (loadedImgs) loadedImgs.insertAdjacentElement("afterend", bar);
+  else box.appendChild(bar);
   log("Injected Scryfall/EDHREC card-hover links.");
 }
 
 function updateCardLinks(box, name) {
+  injectCardLinksBar(box);
   const scryfallLink = box.querySelector(`#${CARD_LINKS_BAR_ID} .lm-ext-scryfall`);
   const edhrecLink = box.querySelector(`#${CARD_LINKS_BAR_ID} .lm-ext-edhrec`);
   if (scryfallLink) scryfallLink.href = scryfallSearchUrl(name);
@@ -172,7 +177,6 @@ function initCardHoverLinks() {
     waitForElement(() => {
       const box = document.getElementById(STICKY_TOOLTIP_ID);
       if (!box) return false;
-      injectCardLinksBar(box);
       initHoverBridge(box);
       return true;
     });
