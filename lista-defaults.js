@@ -162,32 +162,59 @@ function watchAndRememberSelections(container) {
   });
 }
 
+// Breathing room between the Qualidade select and the button pinned below it.
+const LOAD_DEFAULTS_GAP = 8;
+
 /**
- * Adds a "Carregar filtro padrão" button directly above the site's own
- * "Mudar para Busca Detalhada" link, applying the values configured in the
- * popup on demand. Useful whenever the filters aren't applied automatically
- * (mode "off"/"remember") or the user has since changed them by hand and
- * wants to get back to their own defaults.
+ * Keeps the button pinned just under the Qualidade select, against the same
+ * right edge.
  *
- * That link is `position: absolute; top: 0; right: 0` inside the step's
- * content box, so it is out of the normal flow entirely — a button inserted
- * before it in the markup lands under the filters block instead, next to
- * "Adicione a lista de cards". Both are therefore stacked inside one
- * absolutely positioned corner box that takes over the link's spot, letting
- * ordinary flow put ours on top without hardcoding any offsets.
+ * The offset is measured rather than hardcoded so it survives layout
+ * changes, and it is re-measured whenever either box resizes: the step
+ * starts out hidden ("passo-escondido"), so at injection time every
+ * rectangle is still zero. The container is observed alongside the select
+ * because content growing above it moves the select down without changing
+ * the select's own size.
+ */
+function positionLoadDefaultsButton(content, select, button) {
+  const reposition = () => {
+    const selectBox = select.getBoundingClientRect();
+    if (selectBox.height === 0) return; // step still hidden — nothing to measure yet
+    const contentBox = content.getBoundingClientRect();
+    button.style.top = `${Math.round(selectBox.bottom - contentBox.top + LOAD_DEFAULTS_GAP)}px`;
+  };
+
+  reposition();
+  const observer = new ResizeObserver(reposition);
+  observer.observe(select);
+  observer.observe(content);
+}
+
+/**
+ * Adds a "Carregar filtro padrão" button applying the values configured in
+ * the popup on demand. Useful whenever the filters aren't applied
+ * automatically (mode "off"/"remember") or the user has since changed them
+ * by hand and wants to get back to their own defaults.
+ *
+ * It sits on its own, absolutely positioned against the right edge of the
+ * step's content box (which is the `position: relative` ancestor), directly
+ * below the Qualidade select — clear of the "Mudar para Busca Detalhada"
+ * link, which keeps the top-right corner to itself.
  */
 function injectLoadDefaultsButton(container) {
   if (container.querySelector("#lgm-load-defaults-btn")) return;
 
-  const detailedLink = container.querySelector(".change-input-type-btn");
-  if (!detailedLink) return;
+  const content = container.querySelector(".busca-simples-content");
+  const select = findField(container, "#txt_qualidade");
+  if (!content || !select) return;
 
   const button = document.createElement("div");
   button.id = "lgm-load-defaults-btn";
   button.className = "botao";
   button.textContent = "Carregar filtro padrão";
   button.title = "Aplicar os filtros configurados nas opções da extensão";
-  button.style.cssText = "cursor: pointer; white-space: nowrap;";
+  button.style.cssText =
+    "position: absolute; right: 0; cursor: pointer; white-space: nowrap;";
   applySamvStyle(button);
 
   button.addEventListener("click", () => {
@@ -200,16 +227,8 @@ function injectLoadDefaultsButton(container) {
     });
   });
 
-  const corner = document.createElement("div");
-  corner.id = "lgm-lista-corner";
-  corner.style.cssText =
-    "position: absolute; top: 0; right: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 4px;";
-
-  detailedLink.replaceWith(corner);
-  corner.append(button, detailedLink);
-  // Now that it lives inside the corner box, the link stacks below our
-  // button in normal flow instead of pinning itself to the same corner.
-  detailedLink.style.setProperty("position", "static");
+  content.appendChild(button);
+  positionLoadDefaultsButton(content, select, button);
 }
 
 let listaCardsApplied = false;
