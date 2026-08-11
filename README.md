@@ -2,19 +2,15 @@
 
 **Uma experiência melhor no LigaMagic e nos sites que você já usa para montar seus decks.**
 
-O **SAMV LigaMtg Enhancer** é uma extensão de navegador feita pela **Sociedade Amigos do Vale (SAMV)** que mostra o preço em reais do LigaMagic direto no Archidekt, Moxfield e Scryfall, e deixa o próprio LigaMagic mais rápido de usar: menu enxuto, deck ordenado por preço, filtros de compra que já vêm do jeito que você quer e uma forma de sair da "Compra por Lista" com a lista de compras pronta pra qualquer lugar.
-
-Sem loja, sem conta, sem build: é [carregar a pasta no Chrome](#instalação) e pronto.
+O **SAMV LigaMtg Enhancer** é uma extensão de navegador feita pela **Sociedade Amigos do Vale (SAMV)**  deixa o próprio LigaMagic mais rápido de usar: menu enxuto, deck ordenado por preço, filtros de compra que já vêm do jeito que você quer e uma forma de copiar cartas da "Compra por Lista", e de quebra ainda mostra o preço em reais do LigaMagic direto no Archidekt, Moxfield e Scryfall.
 
 ---
 
 ## O que isso resolve
 
-- Você monta decks em sites gringos mas compra no Brasil
-- Os preços em dólar não dizem nada sobre o mercado nacional
-- O próprio LigaMagic tem fricções do dia a dia: menu com abas que você nunca usa, deck view sem ordenar por preço, filtros de compra que você reconfigura toda vez
-
-Os dois problemas, resolvidos pela mesma extensão.
+- Você pode montar decks nos seus sites favoritos e ver o preço deles no Liga;
+- Você ganha um atalho para visualizar as cartas no Liga;
+- Melhora a experiência geral por todo o site do LigaMagic, Scryfall, Archidekt e Moxfield, com recursos que não existem nativamente.
 
 ---
 
@@ -72,37 +68,13 @@ O ícone da extensão abre um painel onde cada recurso acima pode ser ligado, de
 | [LigaMagic](https://www.ligamagic.com.br) | Menu, deck view, compra por lista |
 | [Archidekt](https://archidekt.com) | Overlay de preço |
 | [Moxfield](https://moxfield.com) | Overlay de preço |
-| [Scryfall](https://scryfall.com) | Overlay de preço |
-
----
-
-## O que ainda não existe
-
-Algumas ideias que ficaram de fora por enquanto, sem promessa de prazo, mas no radar:
-
-- Suporte a outros sites de deckbuilding (TappedOut, Deckstats, EDHREC, MTGGoldfish...)
-- Histórico/gráfico de variação de preço ao longo do tempo (hoje só mostra o valor mais recente salvo)
-- Alertas de preço (avisar quando uma carta específica atingir um valor desejado)
-- Comparação entre vendedores dentro do próprio LigaMagic (hoje o overlay mostra só o menor preço)
-- Sincronização de preços/configurações entre navegadores ou dispositivos (hoje tudo é local a cada navegador)
-- Suporte a Firefox ou outros navegadores além do Chrome/Chromium
-
----
-
-## Instalação
-
-1. Acesse `chrome://extensions` no Chrome
-2. Ative o **Modo do desenvolvedor** (canto superior direito)
-3. Clique em **Carregar sem compactação**
-4. Selecione a pasta `chrome-extension/`
-
-Pronto. A extensão já funciona na próxima vez que você abrir o LigaMagic ou um dos sites parceiros.
+| [Scryfall](https://scryfall.com) | Overlay de preço e exibição de oracle-tags |
 
 ---
 
 ## Aviso legal
 
-O **SAMV LigaMtg Enhancer** é uma ferramenta independente, feita sem fins lucrativos pela **Sociedade Amigos do Vale (SAMV)**, para a comunidade de jogadores. Não possui nenhum vínculo, parceria, patrocínio ou aprovação oficial de nenhuma das plataformas mencionadas:
+O **SAMV LigaMtg Enhancer** é uma ferramenta independente, feita sem fins lucrativos pela **Sociedade Amigos do Vale (SAMV)**, para a comunidade de jogadores. Não possui nenhum vínculo, parceria ou patrocínio de nenhuma das plataformas mencionadas:
 
 - [LigaMagic](https://www.ligamagic.com.br)
 - [Archidekt](https://archidekt.com)
@@ -111,7 +83,7 @@ O **SAMV LigaMtg Enhancer** é uma ferramenta independente, feita sem fins lucra
 
 **Como a extensão funciona por baixo dos panos.** Os preços em reais que aparecem no Archidekt, Moxfield e Scryfall são exatamente os valores que você já viu no LigaMagic, guardados no seu próprio navegador na primeira vez que você visita a carta por lá. A extensão só sobrepõe essa informação na tela, de forma puramente visual: nada é enviado de volta para o LigaMagic nem para qualquer outro lugar. Dentro do próprio LigaMagic, os ajustes de menu, visualização de deck e filtros de compra também rodam localmente, com a sua sessão já autenticada: nenhum comportamento por trás dessas telas é escondido de você.
 
-O uso desta extensão é de responsabilidade de quem instala. E pra você não precisar confiar só na nossa palavra, o código é aberto e pode ser auditado por qualquer pessoa, a qualquer momento: é só olhar os arquivos em `chrome-extension/`.
+O uso desta extensão é de responsabilidade de quem instala. O código é aberto e pode ser auditado por qualquer pessoa, a qualquer momento: `https://github.com/Tales-K/samv-ligamtg-enhancer`.
 
 Esta extensão **não contorna nenhuma medida de segurança, autenticação ou captcha** do LigaMagic ou de lojas parceiras: todas as requisições usam a sua própria sessão já autenticada, exatamente como o navegador já faria ao navegar normalmente pelo site.
 
@@ -123,10 +95,4 @@ Magic: The Gathering é marca registrada da Wizards of the Coast LLC. "LigaMagic
 
 ## Privacidade
 
-Nenhum dado pessoal é coletado, transmitido a terceiros ou armazenado fora do seu navegador. Tudo (preços, configurações e histórico do dia) roda e fica salvo localmente em `chrome.storage.local`, no seu próprio navegador.
-
----
-
-## Notas de publicação
-
-- O popup já exibe a versão atual da extensão dinamicamente (via `chrome.runtime.getManifest().version`), então não precisa ser atualizada manualmente a cada release.
+Nenhum dado pessoal é coletado, transmitido a terceiros ou armazenado fora do seu navegador. Tudo (preços, configurações e histórico do dia) roda e fica salvo localmente no seu próprio navegador.
