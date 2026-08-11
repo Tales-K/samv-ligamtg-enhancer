@@ -1,0 +1,20 @@
+/**
+ * Styles injected into ligamagic.com.br pages.
+ */
+
+/*
+ * The main menu lays its tabs out in a single row that only just fits the
+ * site's own. Adding "Meus Decks" and "Meus Pedidos" leaves less room to go
+ * around, and the labels then wrap onto a second line — which grows the bar
+ * from its usual 41px to 61px.
+ *
+ * The rule covers every tab, not only the two injected ones: it is the items
+ * that run out of room that wrap, so the site's longer labels ("Cards em
+ * alta", "Compra por Lista") break just as readily as ours. Keeping them all
+ * on one line holds the bar at its original height without pinning a fixed
+ * height on the container, which would instead clip whatever still wrapped.
+ */
+.main-menu .menu-option,
+.main-menu .menu-option a {
+  white-space: nowrap;
+}
