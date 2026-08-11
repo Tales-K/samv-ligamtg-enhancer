@@ -46,7 +46,7 @@
     },
     {
       "matches": ["*://*.scryfall.com/*"],
-      "js": ["overlay-utils.js", "overlay-scryfall.js"]
+      "js": ["overlay-utils.js", "overlay-scryfall.js", "overlay-scryfall-tags.js"]
     }
   ]
 }

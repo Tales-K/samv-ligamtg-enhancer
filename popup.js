@@ -120,6 +120,7 @@ document.addEventListener("DOMContentLoaded", () => {
     "overlayMoxfield",
     "overlayScryfall",
     "openLigaMagicOnClick",
+    "addScryfallTagsButton",
     "addPriceView",
     "addMeusDecksTab",
     "addMeusPedidosTab",

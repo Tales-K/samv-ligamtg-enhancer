@@ -95,6 +95,13 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
  *       whatever the user has removed via the page's own "X" buttons, so
  *       there's nothing to scrape or track separately
  *     → resolves with Record<blocoIndex, StoreBlock> | null
+ *
+ *   { action: "fetchCardTags", set: string, number: string }
+ *     → fetches a card's Scryfall Tagger tags (see handleFetchCardTags),
+ *       keeping only "card" namespace tags (oracle tags and the ones they
+ *       inherit from an ancestor tag) and dropping "artwork" (illustration)
+ *       tags entirely
+ *     → resolves with { tags: {name, slug}[] } | { error }
  */
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "sendPrices") {
@@ -147,6 +154,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
   if (request.action === "getListaResultado") {
     handleGetListaResultado(sender.tab?.id).then(sendResponse);
+    return true;
+  }
+  if (request.action === "fetchCardTags") {
+    handleFetchCardTags(request.set, request.number).then(sendResponse);
     return true;
   }
 });
@@ -658,6 +669,107 @@ async function handleScrapeStoresFromPage(tabId) {
   }
 }
 
+// ── Scryfall Tagger ──────────────────────────────────────────────────────────
+/**
+ * Scryfall Tagger's GraphQL endpoint (tagger.scryfall.com/graphql -- a
+ * separate app from scryfall.com itself, run by the same team) is
+ * Rails-CSRF-protected, and that protection checks the request's origin
+ * against the token, not just the token's validity by itself. A background
+ * service worker's own fetch() always carries the extension's
+ * chrome-extension:// origin, which fails that check no matter how the
+ * token was obtained -- confirmed by testing directly. Running the fetch
+ * from inside an actual tagger.scryfall.com tab (via executeScript, which
+ * only the background worker can call) makes it a same-origin request, the
+ * same way the page's own JavaScript would make it.
+ *
+ * The tab is opened in the background (not focused) purely to host that
+ * request, and closed as soon as it's done.
+ */
+async function pollForCardTags(tabId, set, number, timeoutMs = 15_000, intervalMs = 500) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const [{ result }] = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: async (set, number) => {
+          const token = document.querySelector('meta[name="csrf-token"]')?.content;
+          if (!token) return null; // page hasn't rendered yet -- caller retries
+
+          const query = `
+            query FetchCardTags($set: String!, $number: String!) {
+              card: cardBySet(set: $set, number: $number) {
+                taggings {
+                  tag {
+                    name
+                    slug
+                    namespace
+                    ancestorTags { name slug namespace }
+                  }
+                }
+              }
+            }
+          `;
+          const res = await fetch("https://tagger.scryfall.com/graphql", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json", "X-CSRF-Token": token },
+            body: JSON.stringify({ query, variables: { set, number } }),
+          });
+          const json = await res.json();
+          const taggings = json?.data?.card?.taggings;
+          if (!taggings) {
+            return { error: json?.errors?.[0]?.message ?? "Card não encontrado no Scryfall Tagger." };
+          }
+          return { taggings };
+        },
+        args: [set, number],
+      });
+      if (result) return result;
+    } catch {
+      // Tab mid-navigation or not yet scriptable -- just retry.
+    }
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  return null;
+}
+
+/**
+ * Fetches a card's community tags and keeps only "card" (oracle) tags,
+ * dropping "artwork" (illustration) tags entirely.
+ *
+ * A tag can list "ancestorTags" -- broader tags it implies (e.g. "egg"
+ * implies "sacrifice self"). Those inherited tags are included too, as long
+ * as they're also in the "card" namespace.
+ */
+async function handleFetchCardTags(set, number) {
+  let tab;
+  try {
+    tab = await chrome.tabs.create({ url: `https://tagger.scryfall.com/card/${set}/${number}`, active: false });
+    const result = await pollForCardTags(tab.id, set, number);
+    if (!result) return { error: "Scryfall Tagger demorou demais para responder." };
+    if (result.error) return { error: result.error };
+
+    const tags = new Map(); // slug -> name, de-duplicated
+    result.taggings.forEach(({ tag }) => {
+      if (tag.namespace !== "card") return;
+      tags.set(tag.slug, tag.name);
+      (tag.ancestorTags ?? []).forEach((ancestor) => {
+        if (ancestor.namespace === "card") tags.set(ancestor.slug, ancestor.name);
+      });
+    });
+
+    return {
+      tags: [...tags.entries()]
+        .map(([slug, name]) => ({ slug, name }))
+        .sort((a, b) => a.slug.localeCompare(b.slug)),
+    };
+  } catch (err) {
+    return { error: err.message };
+  } finally {
+    if (tab) chrome.tabs.remove(tab.id).catch(() => {});
+  }
+}
+
 // ── Storage ────────────────────────────────────────────────────────────────────────
 // Settings
 const DEFAULT_SETTINGS = {
@@ -665,6 +777,7 @@ const DEFAULT_SETTINGS = {
   overlayMoxfield: true,
   overlayScryfall: true,
   openLigaMagicOnClick: true, // whether the BRL price in overlays (Archidekt/Moxfield/Scryfall) links to the card's LigaMagic page
+  addScryfallTagsButton: true, // whether the "Carregar Tags" button is added to a card's prints box on Scryfall
   disclaimerAcknowledged: false, // whether the user has dismissed the first-open hobby/non-affiliation disclaimer in the popup
   defaultDeckView: "price", // deck page tab to auto-select on load; "" keeps LigaMagic's own default
   addPriceView: true, // whether the "Preço" deck visualization tab is injected at all

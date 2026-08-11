@@ -18,6 +18,26 @@ function createLogger(siteName) {
 
 const LIGAMAGIC_BASE = "https://www.ligamagic.com.br/?view=cards%2Fcard&card=";
 
+// Same purple the extension's popup and its LigaMagic-side injections use,
+// so anything this extension adds elsewhere (Scryfall included) reads as
+// ours at a glance instead of passing for a native control.
+const SAMV_PURPLE = "#6d4fc4";
+const SAMV_PURPLE_HOVER = "#7c5ce0";
+const SAMV_PURPLE_TEXT = "#f5f3ff";
+
+/** Paints one injected button purple, with a lighter purple on hover. */
+function applySamvButtonStyle(el) {
+  const paint = (bg) => {
+    el.style.setProperty("background", bg, "important");
+    el.style.setProperty("color", SAMV_PURPLE_TEXT, "important");
+    el.style.setProperty("border-color", bg, "important");
+  };
+  paint(SAMV_PURPLE);
+  el.addEventListener("mouseenter", () => paint(SAMV_PURPLE_HOVER));
+  el.addEventListener("mouseleave", () => paint(SAMV_PURPLE));
+  return el;
+}
+
 function priceColor(updatedAt) {
   if (!updatedAt) return "#ef4444"; // red   — not in DB
   const age = Date.now() - new Date(updatedAt).getTime();

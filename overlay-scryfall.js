@@ -100,6 +100,7 @@ function applyPrices(priceMap, openLigaMagicOnClick = true) {
       const th = document.createElement("th");
       const span = document.createElement("span");
       span.textContent = "R$";
+      span.style.setProperty("color", SAMV_PURPLE, "important");
       th.appendChild(span);
       headerRow.appendChild(th);
     }
