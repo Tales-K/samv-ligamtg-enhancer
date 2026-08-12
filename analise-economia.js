@@ -145,12 +145,24 @@ function lojasQueOferecem(consolidado, chaveBusca) {
  * cheaper, with no extra shipping cost since those stores are paid for
  * regardless.
  *
- * Returns { custo, porLoja: Map<loja, quantidade> }, or null if the offers
- * available within `lojasAbertas` can't cover `qtd` (this card doesn't have
- * enough stock there).
+ * `iQuant` on an offer is the store's TOTAL stock for that card, not what's
+ * still free -- every store in `lojasAbertas` keeps its own existing real
+ * purchases untouched (this only ever fills NEW demand on top of that), so
+ * whatever quantity of this exact card that store is already really selling
+ * elsewhere in the current cart has already spoken for that much stock.
+ * Only the remainder is actually available here; skipping this check would
+ * let a store's already-fully-committed stock look free to pull from twice.
+ *
+ * Returns { custo, porLoja: Map<loja, { qtd, custo }> }, or null if the
+ * offers available within `lojasAbertas` can't cover `qtd` (this card
+ * doesn't have enough free stock there). `porLoja` carries each
+ * destination's own quantity and cost (not just its share of the total) so
+ * callers can show exactly how much moves where, and at what price, when a
+ * card ends up split across more than one store.
  */
 function preencherCarta(consolidado, chaveBusca, lojasAbertas, qtd) {
   const ofertas = consolidado.ofertas.get(chaveBusca) ?? [];
+  const jaRealRestante = new Map(); // loja -> quantidade real ainda a descontar das ofertas dessa loja
   let restante = qtd;
   let custo = 0;
   const porLoja = new Map();
@@ -158,10 +170,22 @@ function preencherCarta(consolidado, chaveBusca, lojasAbertas, qtd) {
   for (const oferta of ofertas) {
     if (restante <= 0) break;
     if (!lojasAbertas.has(oferta.loja)) continue;
-    const usar = Math.min(restante, oferta.iQuant);
+
+    if (!jaRealRestante.has(oferta.loja)) {
+      jaRealRestante.set(oferta.loja, consolidado.cartasPorLoja.get(oferta.loja)?.get(chaveBusca)?.qtd ?? 0);
+    }
+    const aDescontar = Math.min(oferta.iQuant, jaRealRestante.get(oferta.loja));
+    jaRealRestante.set(oferta.loja, jaRealRestante.get(oferta.loja) - aDescontar);
+    const livre = oferta.iQuant - aDescontar;
+
+    const usar = Math.min(restante, livre);
     if (usar <= 0) continue;
-    custo += usar * oferta.preco;
-    porLoja.set(oferta.loja, (porLoja.get(oferta.loja) ?? 0) + usar);
+    const custoAqui = usar * oferta.preco;
+    custo += custoAqui;
+    const atual = porLoja.get(oferta.loja) ?? { qtd: 0, custo: 0 };
+    atual.qtd += usar;
+    atual.custo += custoAqui;
+    porLoja.set(oferta.loja, atual);
     restante -= usar;
   }
 
@@ -187,9 +211,19 @@ function preencherCarta(consolidado, chaveBusca, lojasAbertas, qtd) {
  * it's under consideration for closing in this same pass, so relying on its
  * capacity would be circular.
  *
+ * When a candidate is really bought across SEVERAL stores and only some of
+ * them can close, only THOSE stores' portion of the candidate counts as
+ * "its own price" saved -- the portion still sourced from a store that
+ * isn't closing (because it can't, or simply wasn't touched) keeps being
+ * bought exactly as today, so nothing about it actually changes. That
+ * portion is why each closing store carries its own `valorCandidato`/
+ * `qtdCandidato` instead of the caller using the candidate's grand total.
+ *
  * Returns { economia, lojasFechando }, where lojasFechando is
- * [{ nome, frete, realocacoes }] and each realocacao is
- * { nome, precoAntes, precoDepois, delta, destino: [[loja, qtd], ...] }.
+ * [{ nome, frete, valorCandidato, qtdCandidato, realocacoes }] and each
+ * realocacao is { nome, qtd, precoAntes, precoDepois, delta, destino }, where
+ * destino is [[loja, { qtd, custo }], ...] -- a card's units can end up
+ * split across more than one destination store, see preencherCarta.
  */
 function analisarFechamentosCandidato(consolidado, card) {
   const lojasCandidato = [...card.porLoja.keys()];
@@ -206,9 +240,10 @@ function analisarFechamentosCandidato(consolidado, card) {
       ([chave]) => chave !== card.chaveBusca,
     );
     const lojaInfo = lojaPorNome.get(loja);
+    const { qtd: qtdCandidato, valor: valorCandidato } = card.porLoja.get(loja);
 
     if (outras.length === 0) {
-      lojasFechando.push({ nome: loja, frete: lojaInfo.frete, realocacoes: [] });
+      lojasFechando.push({ nome: loja, frete: lojaInfo.frete, valorCandidato, qtdCandidato, realocacoes: [] });
       continue;
     }
 
@@ -225,16 +260,17 @@ function analisarFechamentosCandidato(consolidado, card) {
       somaDeltas += delta;
       realocacoes.push({
         nome: info.nome,
+        qtd: info.qtd,
         precoAntes: info.valor,
         precoDepois: preenchido.custo,
         delta,
-        destino: [...preenchido.porLoja],
+        destino: [...preenchido.porLoja], // [loja, { qtd, custo }][] -- can span more than one store
       });
     }
     if (inviavel) continue; // something at this store is exclusive to it -- can't close, whatever else is true
     if (lojaInfo.frete - somaDeltas <= 0) continue; // relocating everything else costs more than the shipping saved
 
-    lojasFechando.push({ nome: loja, frete: lojaInfo.frete, realocacoes, somaDeltas });
+    lojasFechando.push({ nome: loja, frete: lojaInfo.frete, valorCandidato, qtdCandidato, realocacoes, somaDeltas });
   }
 
   const economia = lojasFechando.reduce((soma, l) => soma + l.frete - (l.somaDeltas ?? 0), 0);
@@ -278,28 +314,55 @@ function construirInstrucoes(card, analise, totalAtual) {
   const linhas = [];
 
   const lojasAtuais = [...card.porLoja.keys()];
-  linhas.push(
-    lojasAtuais.length > 0
-      ? `Remova "${card.nome}" da lista (comprado hoje em ${lojasAtuais.join(" + ")}).`
-      : `Remova "${card.nome}" da lista.`,
-  );
+  const lojasFechandoNomes = new Set(analise.lojasFechando.map((l) => l.nome));
+  const lojasQueFicam = lojasAtuais.filter((nome) => !lojasFechandoNomes.has(nome));
+  const valorFechando = analise.lojasFechando.reduce((s, l) => s + l.valorCandidato, 0);
+
+  if (lojasQueFicam.length === 0) {
+    // The candidate closes every store it's really bought from -- dropping
+    // it means dropping it everywhere, so "própria carta" below is its full
+    // price, same as always.
+    const lojasAtuaisTexto = lojasAtuais.map((nome) => `${card.porLoja.get(nome).qtd}x ${nome}`).join(" + ");
+    linhas.push(`Remova "${card.nome}" da lista (comprado hoje em ${lojasAtuaisTexto}).`);
+  } else {
+    // Only some of the candidate's stores can actually close -- the portion
+    // still sourced from a store that isn't closing keeps being bought
+    // exactly as today (that store is paying its own shipping regardless),
+    // so only the closing stores' portion is actually being given up here.
+    const partes = analise.lojasFechando
+      .map((l) => `${l.qtdCandidato}x em "${l.nome}" (R$ ${formatarMoeda(l.valorCandidato)})`)
+      .join(", ");
+    linhas.push(
+      `Deixe de comprar "${card.nome}" ${partes} -- o restante (comprado em ${lojasQueFicam.join(" + ")}) ` +
+        "continua normalmente.",
+    );
+  }
 
   for (const loja of analise.lojasFechando) {
     for (const realoc of loja.realocacoes) {
-      const destino = realoc.destino.map(([nomeLoja]) => nomeLoja).join(" + ");
-      const sinal = realoc.delta >= 0 ? "aumentando" : "reduzindo";
-      linhas.push(
-        `Retire "${realoc.nome}" da loja "${loja.nome}" e compre em ${destino}, ${sinal} o custo em ` +
-          `R$ ${formatarMoeda(Math.abs(realoc.delta))}.`,
-      );
+      // Pooled fill can and does split a single card's units across more
+      // than one destination store (see preencherCarta) -- one line per
+      // destination, each with its own quantity and its own price delta
+      // (computed against that portion's share of the original price), so
+      // "retire 3" never quietly means "buy 1 here, 2 there" without saying
+      // so.
+      const precoUnitarioAntes = realoc.precoAntes / realoc.qtd;
+      for (const [nomeLoja, { qtd: qtdAqui, custo: custoAqui }] of realoc.destino) {
+        const deltaAqui = custoAqui - qtdAqui * precoUnitarioAntes;
+        const sinal = deltaAqui >= 0 ? "aumentando" : "reduzindo";
+        linhas.push(
+          `Retire ${qtdAqui}x "${realoc.nome}" da loja "${loja.nome}" e compre ${qtdAqui}x em ${nomeLoja}, ` +
+            `${sinal} o custo em R$ ${formatarMoeda(Math.abs(deltaAqui))}.`,
+        );
+      }
     }
     linhas.push(`A loja "${loja.nome}" sai da compra — economia de R$ ${formatarMoeda(loja.frete)} em frete.`);
   }
 
-  const totalDepois = totalAtual - card.valorAtual - analise.economia;
+  const totalDepois = totalAtual - valorFechando - analise.economia;
   linhas.push(
     `Total: R$ ${formatarMoeda(totalAtual)} → R$ ${formatarMoeda(totalDepois)} ` +
-      `(R$ ${formatarMoeda(card.valorAtual + analise.economia)} no total: R$ ${formatarMoeda(card.valorAtual)} ` +
+      `(R$ ${formatarMoeda(valorFechando + analise.economia)} no total: R$ ${formatarMoeda(valorFechando)} ` +
       `da própria carta + R$ ${formatarMoeda(analise.economia)} de redistribuição).`,
   );
   return linhas;
@@ -347,10 +410,15 @@ async function analisarEconomiaAsync(resultado) {
     const analise = analisarFechamentosCandidato(consolidado, card);
 
     if (analise.economia > ANALISE_ECONOMIA_MINIMA) {
+      // Own-price shown for this row is scoped to the store(s) that actually
+      // close -- if the candidate is also bought at a store that can't (or
+      // isn't being) closed, that portion isn't part of this suggestion at
+      // all and shouldn't be counted as savings (see construirInstrucoes).
+      const valorFechando = analise.lojasFechando.reduce((s, l) => s + l.valorCandidato, 0);
       resultados.push({
         chaveBusca: card.chaveBusca,
         nome: card.nome,
-        valorAtual: card.valorAtual,
+        valorAtual: valorFechando,
         economia: analise.economia,
         lojasQueSaem: analise.lojasFechando.map((l) => l.nome),
         instrucoes: construirInstrucoes(card, analise, totalAtual),
@@ -366,7 +434,7 @@ async function analisarEconomiaAsync(resultado) {
 // Bumped whenever the report's shape or the meaning of `economia` changes,
 // so a previously-cached analysis (computed under different semantics) is
 // never mistaken for a fresh one and shown as-is.
-const ANALISE_CACHE_VERSION = 3;
+const ANALISE_CACHE_VERSION = 4;
 
 /** Cheap fingerprint of a search result, to know whether a cached analysis is still current. */
 function hashResultado(resultado) {
