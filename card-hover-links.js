@@ -1,15 +1,16 @@
 /**
- * Adds "Scryfall" and "EDHREC" quick-link buttons under the card-hover image
+ * Adds "Scryfall", "EDHREC" and "Copiar nome" buttons under the card-hover image
  * tooltip (#mystickytooltip) that LigaMagic's own stickytooltip.js library
  * shows on any .sticky_lazy card link -- deck pages, "Meus Decks" listing,
  * wherever the site uses it.
  *
  * Depends on: content-utils.js (waitForElement, cardNameFromHref,
- * applySamvStyle, getSettings, log)
+ * applySamvStyle, getSettings, showCopiedFeedback, log)
  */
 
 const STICKY_TOOLTIP_ID = "mystickytooltip";
 const CARD_LINKS_BAR_ID = "lm-ext-card-links";
+const CARD_LINKS_COPY_CLASS = "lm-ext-copy-name";
 const STICKY_LAZY_SELECTOR = ".sticky_lazy";
 // Tolerance for the empty space between the card link and the tooltip box
 // (the box sits at a fixed offset from the cursor, not glued to it), so the
@@ -93,6 +94,31 @@ function injectCardLinksBar(box) {
     bar.appendChild(link);
   });
 
+  // Copies the same English name the two links are built from, which is what
+  // deck builders and search fields expect -- not the localized name shown
+  // on screen.
+  const copyButton = document.createElement("button");
+  copyButton.type = "button";
+  copyButton.className = CARD_LINKS_COPY_CLASS;
+  copyButton.textContent = "Copiar nome";
+  Object.assign(copyButton.style, {
+    flex: "1",
+    padding: "6px 0",
+    border: "none",
+    borderRadius: "4px",
+    fontSize: "12px",
+    fontWeight: "700",
+    cursor: "pointer",
+    fontFamily: "inherit",
+  });
+  applySamvStyle(copyButton);
+  copyButton.addEventListener("click", () => {
+    const name = bar.dataset.cardName;
+    if (!name) return;
+    navigator.clipboard.writeText(name).then(() => showCopiedFeedback(copyButton));
+  });
+  bar.appendChild(copyButton);
+
   // The bar has to end up inside the box, so it's hidden along with it:
   // "afterend" of the box itself would leave it sitting loose in the page.
   const loadedImgs = box.querySelector(".stickyloadedimgs");
@@ -103,6 +129,8 @@ function injectCardLinksBar(box) {
 
 function updateCardLinks(box, name) {
   injectCardLinksBar(box);
+  const bar = box.querySelector(`#${CARD_LINKS_BAR_ID}`);
+  if (bar) bar.dataset.cardName = name;
   const scryfallLink = box.querySelector(`#${CARD_LINKS_BAR_ID} .lm-ext-scryfall`);
   const edhrecLink = box.querySelector(`#${CARD_LINKS_BAR_ID} .lm-ext-edhrec`);
   if (scryfallLink) scryfallLink.href = scryfallSearchUrl(name);
