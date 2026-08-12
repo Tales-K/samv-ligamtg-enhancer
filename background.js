@@ -452,6 +452,16 @@ async function handleInstallSearchOverride(tabId) {
         const payload = payloadOverride
           ? JSON.parse(JSON.stringify(payloadOverride))
           : JSON.parse(JSON.stringify(wizard.json));
+
+        // Custom stores only make sense to inject under "Minhas Favoritas +
+        // Buscar Lojas" (tipoFiltro "2"): that's the only mode where the
+        // search is otherwise restricted to a store list at all. Under
+        // "Todas Lojas" (tipoFiltro "1") every store is already included, so
+        // forcing tipoFiltro/favoritas here wouldn't add the custom stores —
+        // it would silently SHRINK the search down to just them, ignoring
+        // whichever filter the user actually has selected right now.
+        if (String(payload.lojas?.tipoFiltro) !== "2") return originalPesquisar(payloadOverride);
+
         payload.cards.forEach((c, i) => {
           c.chaveBusca = i + 1;
         });
@@ -477,14 +487,22 @@ async function handleInstallSearchOverride(tabId) {
       // one native *checkbox* (.txt_lojafav_opc) to be checked, which has
       // nothing to do with our custom set and would block the search before
       // our pesquisar() wrapper ever runs. Only that specific message is
-      // swallowed (and only while we actually have custom stores checked) —
-      // every other validation (empty card list, 7000-char limit, card
-      // numbering, etc.) still runs untouched.
+      // swallowed, and only while we actually have custom stores checked AND
+      // "Minhas Favoritas" is the mode currently selected -- otherwise
+      // (e.g. under "Todas Lojas", where this validation never fires anyway)
+      // there's nothing to swallow, and checking the radio here keeps this
+      // gate consistent with the pesquisar() override above rather than
+      // reacting to leftover custom-store state from a filter that's no
+      // longer selected. Every other validation (empty card list, 7000-char
+      // limit, card numbering, etc.) still runs untouched.
       const originalValidaBusca = CardsOrcamento.validaBusca.bind(CardsOrcamento);
       CardsOrcamento.validaBusca = function (a) {
         const result = originalValidaBusca(a);
         const customIds = window.__lgmCustomStoreIds || [];
-        if (result && customIds.length > 0 && /Lojas Favoritas/.test(result)) return "";
+        const tipoFiltroAtual = document.querySelector('input[name="txt_tipo_filtro"]:checked')?.value;
+        if (result && customIds.length > 0 && tipoFiltroAtual === "2" && /Lojas Favoritas/.test(result)) {
+          return "";
+        }
         return result;
       };
 
@@ -703,7 +721,8 @@ async function pollForCardTags(tabId, set, number, timeoutMs = 15_000, intervalM
                     name
                     slug
                     namespace
-                    ancestorTags { name slug namespace }
+                    status
+                    ancestorTags { name slug namespace status }
                   }
                 }
               }
@@ -740,6 +759,10 @@ async function pollForCardTags(tabId, set, number, timeoutMs = 15_000, intervalM
  * A tag can list "ancestorTags" -- broader tags it implies (e.g. "egg"
  * implies "sacrifice self"). Those inherited tags are included too, as long
  * as they're also in the "card" namespace.
+ *
+ * Tags carry a moderation "status" ("GOOD_STANDING", "REJECTED", etc.).
+ * The Tagger site itself only displays GOOD_STANDING tags, so rejected ones
+ * are filtered out here too to match what's actually shown on the card page.
  */
 async function handleFetchCardTags(set, number) {
   let tab;
@@ -751,10 +774,12 @@ async function handleFetchCardTags(set, number) {
 
     const tags = new Map(); // slug -> name, de-duplicated
     result.taggings.forEach(({ tag }) => {
-      if (tag.namespace !== "card") return;
+      if (tag.namespace !== "card" || tag.status !== "GOOD_STANDING") return;
       tags.set(tag.slug, tag.name);
       (tag.ancestorTags ?? []).forEach((ancestor) => {
-        if (ancestor.namespace === "card") tags.set(ancestor.slug, ancestor.name);
+        if (ancestor.namespace === "card" && ancestor.status === "GOOD_STANDING") {
+          tags.set(ancestor.slug, ancestor.name);
+        }
       });
     });
 
@@ -778,6 +803,8 @@ const DEFAULT_SETTINGS = {
   overlayScryfall: true,
   openLigaMagicOnClick: true, // whether the BRL price in overlays (Archidekt/Moxfield/Scryfall) links to the card's LigaMagic page
   addScryfallTagsButton: true, // whether the "Carregar Tags" button is added to a card's prints box on Scryfall
+  addScryfallFilterButton: true, // whether the default-filter button is added next to Scryfall's search field
+  scryfallDefaultFilter: "", // filter terms that button appends to the search (e.g. "sort:edhrec")
   disclaimerAcknowledged: false, // whether the user has dismissed the first-open hobby/non-affiliation disclaimer in the popup
   defaultDeckView: "price", // deck page tab to auto-select on load; "" keeps LigaMagic's own default
   addPriceView: true, // whether the "Preço" deck visualization tab is injected at all
@@ -790,6 +817,12 @@ const DEFAULT_SETTINGS = {
   addLoadDefaultsButton: true, // whether the "Carregar filtro padrão" button is injected into Compra por Lista
   rememberListaFilters: false, // reapply the last manual filter selection on load, instead of the configured defaults
   addCopyListaButton: true, // whether the "Copiar Lista de Compras" button is injected into Compra por Lista results
+  addAnaliseEconomia: true, // whether the "Análise de Economia" button is injected into Compra por Lista results
+  // Cached result of the last economy analysis, keyed by a cheap fingerprint
+  // of the search result it was computed from (see hashResultado in
+  // analise-economia.js), so reopening the modal on an unchanged result
+  // doesn't rerun the solver. { hash, relatorio } | null
+  analiseEconomiaCache: null,
   addCarrinhoCopyButton: true, // whether the "Copiar Lista" button is injected into the cart's shopping list
   addCardHoverLinks: true, // whether Scryfall/EDHREC buttons are added to the card-hover image tooltip
   // How "Copiar Lista de Compras" formats each card line, remembered across

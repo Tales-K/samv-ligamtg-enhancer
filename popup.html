@@ -271,7 +271,8 @@
       flex-shrink: 0;
     }
 
-    .settings-row-select select {
+    .settings-row-select select,
+    .settings-row-select input[type="text"] {
       background: #0f1830;
       color: #e0e0e0;
       border: 1px solid #2d2d4e;
@@ -282,6 +283,12 @@
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+    }
+
+    .settings-row-select input[type="text"] {
+      min-width: 0;
+      flex: 1;
+      margin-left: 10px;
     }
 
     /* ── Lista de Cards defaults ────────────────────────── */
@@ -602,6 +609,14 @@
             <input type="checkbox" id="addScryfallTagsButton" />
             <label for="addScryfallTagsButton">Botão "Carregar Tags" no Scryfall</label>
           </div>
+          <div class="settings-row" title="Adiciona um botão ao lado da busca do Scryfall que acrescenta o filtro padrão abaixo ao que já estiver no campo.">
+            <input type="checkbox" id="addScryfallFilterButton" />
+            <label for="addScryfallFilterButton">Botão de filtro padrão no Scryfall</label>
+          </div>
+          <div class="settings-row settings-row-select" title="Filtro acrescentado à busca do Scryfall ao clicar no botão. Pode ter vários termos separados por espaço.">
+            <label for="scryfallDefaultFilter">Filtro padrão</label>
+            <input type="text" id="scryfallDefaultFilter" placeholder="sort:edhrec" spellcheck="false" />
+          </div>
         </div>
       </div>
 
@@ -682,6 +697,11 @@
           <div class="settings-row" title="Adiciona o botão 'Copiar Lista de Compras' na tela de resultados da 'Compra por Lista', pra copiar os cards ainda na lista (por loja) em formato de lista de Magic.">
             <input type="checkbox" id="addCopyListaButton" />
             <label for="addCopyListaButton">Botão "Copiar Lista de Compras"</label>
+          </div>
+
+          <div class="settings-row" title="Adiciona o botão 'Análise de Economia' na tela de resultados da 'Compra por Lista', que estima quanto você economizaria deixando de comprar cada carta cara (considerando o frete das lojas envolvidas).">
+            <input type="checkbox" id="addAnaliseEconomia" />
+            <label for="addAnaliseEconomia">Botão "Análise de Economia"</label>
           </div>
 
           <div class="settings-row" title="Adiciona o botão 'Copiar Lista' na lista de compras do carrinho, pra copiar os cards no formato detalhado do LigaMagic (com edição, qualidade, idioma e extras de cada carta).">
@@ -807,7 +827,7 @@
   </div>
 
   <footer class="app-footer">
-    <a href="https://github.com/Tales-K/samv-ligamtg-enhancer/issues/new" target="_blank" rel="noopener noreferrer">Pedir função nova</a>
+    <a href="https://github.com/Tales-K/samv-ligamtg-enhancer/issues/new" target="_blank" rel="noopener noreferrer">Pedir função nova ou reportar erro</a>
     <span id="appVersion"></span>
   </footer>
 

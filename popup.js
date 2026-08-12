@@ -121,6 +121,7 @@ document.addEventListener("DOMContentLoaded", () => {
     "overlayScryfall",
     "openLigaMagicOnClick",
     "addScryfallTagsButton",
+    "addScryfallFilterButton",
     "addPriceView",
     "addMeusDecksTab",
     "addMeusPedidosTab",
@@ -132,9 +133,11 @@ document.addEventListener("DOMContentLoaded", () => {
     "addLoadDefaultsButton",
     "enableCustomStoreSearch",
     "addCopyListaButton",
+    "addAnaliseEconomia",
     "addCarrinhoCopyButton",
   ];
   const selectIds = ["defaultDeckView"];
+  const textIds = ["scryfallDefaultFilter"];
 
   // Load saved settings and populate checkboxes / selects.
   chrome.runtime.sendMessage({ action: "getSettings" }, (settings) => {
@@ -142,7 +145,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const el = document.getElementById(id);
       if (el) el.checked = settings[id] ?? false;
     });
-    selectIds.forEach((id) => {
+    [...selectIds, ...textIds].forEach((id) => {
       const el = document.getElementById(id);
       if (el) el.value = settings[id] ?? "";
     });
@@ -165,12 +168,22 @@ document.addEventListener("DOMContentLoaded", () => {
     .getElementById("addLoadDefaultsButton")
     .addEventListener("change", syncFiltersCardVisibility);
 
-  // Persist any select change immediately.
+  // Persist any select change immediately. Text fields save on "input" too,
+  // so a value typed and then closed without blurring isn't lost.
   selectIds.forEach((id) => {
     document.getElementById(id)?.addEventListener("change", (e) => {
       chrome.runtime.sendMessage({
         action: "saveSettings",
         settings: { [id]: e.target.value },
+      });
+    });
+  });
+
+  textIds.forEach((id) => {
+    document.getElementById(id)?.addEventListener("input", (e) => {
+      chrome.runtime.sendMessage({
+        action: "saveSettings",
+        settings: { [id]: e.target.value.trim() },
       });
     });
   });

@@ -1,5 +1,5 @@
 /**
- * Adds "Scryfall", "EDHREC" and "Copiar nome" buttons under the card-hover image
+ * Adds "Scryfall", "EDHREC" and "Copiar nome" buttons above the card-hover image
  * tooltip (#mystickytooltip) that LigaMagic's own stickytooltip.js library
  * shows on any .sticky_lazy card link -- deck pages, "Meus Decks" listing,
  * wherever the site uses it.
@@ -56,10 +56,10 @@ function cardNameFromStickyLazy(el) {
   return (anchor && cardNameFromHref(anchor.getAttribute("href"))) || el.textContent.trim();
 }
 
-/** Builds the two-button bar once, right after .stickyloadedimgs -- the box
- * has no fixed height or overflow:hidden, so it grows to fit whatever comes
- * after the image. Called on the first card hover rather than at start-up,
- * so pages that never show a card tooltip get no bar at all. */
+/** Builds the three-button bar once, right before .stickyloadedimgs -- the
+ * box has no fixed height or overflow:hidden, so it grows to fit whatever
+ * comes above the image. Called on the first card hover rather than at
+ * start-up, so pages that never show a card tooltip get no bar at all. */
 function injectCardLinksBar(box) {
   if (box.querySelector(`#${CARD_LINKS_BAR_ID}`)) return;
 
@@ -120,9 +120,10 @@ function injectCardLinksBar(box) {
   bar.appendChild(copyButton);
 
   // The bar has to end up inside the box, so it's hidden along with it:
-  // "afterend" of the box itself would leave it sitting loose in the page.
+  // "beforebegin" of the image container keeps it a sibling within the same
+  // box, just placed above the image instead of below it.
   const loadedImgs = box.querySelector(".stickyloadedimgs");
-  if (loadedImgs) loadedImgs.insertAdjacentElement("afterend", bar);
+  if (loadedImgs) loadedImgs.insertAdjacentElement("beforebegin", bar);
   else box.appendChild(bar);
   log("Injected Scryfall/EDHREC card-hover links.");
 }
