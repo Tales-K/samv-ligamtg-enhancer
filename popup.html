@@ -416,6 +416,29 @@
       text-decoration: underline;
     }
 
+    .footer-version-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* Hidden until the version number is clicked (see popup.js). */
+    .debug-logs-toggle {
+      display: none;
+      align-items: center;
+      gap: 4px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .debug-logs-toggle input[type="checkbox"] {
+      margin: 0;
+    }
+
+    #appVersion {
+      cursor: pointer;
+    }
+
     /* ── Disclaimer modal ─────────────────────────────────── */
     .modal-overlay {
       position: fixed;
@@ -649,13 +672,17 @@
             <input type="checkbox" id="addPriceView" />
             <label for="addPriceView">Adicionar visualização de deck por preço</label>
           </div>
-          <div class="settings-row" title="Na página de um deck no LigaMagic, troca o botão 'Gerar Imagem' por 'Copiar Deck', que copia a lista de cards para a área de transferência.">
+          <div class="settings-row" title="Na página de um deck no LigaMagic, adiciona o botão 'Copiar Deck', que copia a lista de cards para a área de transferência.">
             <input type="checkbox" id="replaceGerarImagemWithCopiarDeck" />
-            <label for="replaceGerarImagemWithCopiarDeck">Substituir botão de Gerar Imagem por Copiar Deck</label>
+            <label for="replaceGerarImagemWithCopiarDeck">Adicionar botão Copiar Deck</label>
           </div>
-          <div class="settings-row" title="Adiciona botões 'Scryfall' e 'EDHREC' abaixo da imagem que aparece ao passar o mouse sobre o nome de uma carta, em qualquer lugar do LigaMagic que mostra essa prévia (deck, listagem de decks, etc.).">
+          <div class="settings-row" title="Na página de um deck no LigaMagic, remove o botão nativo 'Gerar Imagem'. Independente da opção acima — desative esta para manter os dois botões visíveis ao mesmo tempo.">
+            <input type="checkbox" id="removeGerarImagemButton" />
+            <label for="removeGerarImagemButton">Remover botão Gerar Imagem</label>
+          </div>
+          <div class="settings-row" title="Adiciona botões 'Scryfall' e 'EDHREC': acima da imagem que aparece ao passar o mouse sobre o nome de uma carta (deck, listagem de decks, etc.) e ao lado do botão de favoritar na página individual da carta.">
             <input type="checkbox" id="addCardHoverLinks" />
-            <label for="addCardHoverLinks">Links Scryfall/EDHREC na prévia de carta (hover)</label>
+            <label for="addCardHoverLinks">Links Scryfall/EDHREC (prévia hover + página da carta)</label>
           </div>
           <div class="settings-row settings-row-select" title="Define qual aba (Padrão, Cor, Preço, etc.) abre automaticamente ao visitar a página de um deck no LigaMagic.">
             <label for="defaultDeckView">Visualização padrão</label>
@@ -828,7 +855,12 @@
 
   <footer class="app-footer">
     <a href="https://github.com/Tales-K/samv-ligamtg-enhancer/issues/new" target="_blank" rel="noopener noreferrer">Pedir função nova ou reportar erro</a>
-    <span id="appVersion"></span>
+    <span class="footer-version-group">
+      <label class="debug-logs-toggle" id="debugLogsToggle">
+        <input type="checkbox" id="showDebugLogs" /> logs
+      </label>
+      <span id="appVersion"></span>
+    </span>
   </footer>
 
   <script src="popup.js"></script>

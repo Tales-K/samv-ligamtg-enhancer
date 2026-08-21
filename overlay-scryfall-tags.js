@@ -1,21 +1,40 @@
 /**
- * Adds a "Carregar Tags" button to each card's prints box on Scryfall,
- * fetching community tags from Scryfall Tagger on click and rendering them
- * as a prints-table -- the same markup the site's own "Faces, Tokens &
- * Other Parts" box uses, so its own CSS styles the table and rows for us.
- * Each tag row also gets two small icon buttons (copy / add to the search
- * field), which are the one bit of custom styling in here.
+ * Adds a "Carregar Tags" button and a "Carregar Preço" button, side by side,
+ * to each card's prints box on Scryfall.
+ *
+ * "Carregar Tags" fetches community tags from Scryfall Tagger on click and
+ * renders them as a prints-table -- the same markup the site's own "Faces,
+ * Tokens & Other Parts" box uses, so its own CSS styles the table and rows
+ * for us. Each tag row also gets two small icon buttons (copy / add to the
+ * search field), which are the one bit of custom styling in here.
+ *
+ * "Carregar Preço" triggers, on demand, the same per-card BRL price lookup
+ * overlay-scryfall.js's automatic run() already performs (see
+ * loadPriceForBlock there) -- shown only for a block that doesn't have the
+ * price column yet, independently of whatever state the tags button/box is
+ * in.
  *
  * Works on the same pages as overlay-scryfall.js: individual card pages and
  * search results in "full" view -- both render div.inner-flex > div.prints.
  *
  * Depends on: overlay-utils.js (createLogger, applySamvButtonStyle, SAMV_PURPLE)
+ * and overlay-scryfall.js (hasPriceColumn, loadPriceForBlock).
  */
 
 const tagsLog = createLogger("Scryfall Tags");
 
-const SEL_TAGS_CARD_BLOCK = "div.inner-flex";
+// Scoped to the card-profile parent, not just the bare "inner-flex" layout
+// class — see the matching comment on SEL_CARD_BLOCK in overlay-scryfall.js
+// for why (that generic class also matches the Toolbox panel and page
+// footer on an individual card page, neither of which is a real card block).
+const SEL_TAGS_CARD_BLOCK = "div.card-profile > div.inner-flex";
 const TAGS_BOX_CLASS = "custom-tags-box";
+const PRICE_BOX_CLASS = "custom-price-box";
+const ACTIONS_WRAPPER_CLASS = "custom-actions-box";
+// Guards injection of the shared actions wrapper (Tags + Price) per block --
+// an idempotency guard against re-running on every observeAndRerun pass, not
+// a "these are loaded" flag: each button's own visibility is decided
+// separately at injection time (see injectActionsBox).
 const TAGS_PROCESSED_ATTR = "data-lm-scryfall-tags-processed";
 const SEARCH_FIELD_SELECTOR = "#header-search-field";
 
@@ -183,16 +202,38 @@ function buildTagsTable(tags) {
   return table;
 }
 
-// ── Box states (button / loading / table / error) ────────────────────────────
-/** Spacing from the prints block above, shared by every box state. */
+// ── Actions wrapper (Tags box + Price button, side by side) ─────────────────
+/** Spacing from the prints block above -- lives on the outer wrapper only; the
+ * boxes/buttons nested inside it don't need their own copy. */
 function applyBoxSpacing(box) {
   box.style.marginTop = "12px";
+}
+
+/**
+ * Shared flex row that holds the Tags box and the Price button next to each
+ * other, gap-separated rather than margin-separated so nothing looks
+ * lopsided if only one of the two ends up present. flex-wrap covers the
+ * moment the Tags box turns into a full-width table (see loadTags) -- the
+ * Price button (if still present) wraps onto its own line instead of being
+ * squeezed.
+ */
+function createActionsWrapper() {
+  const wrapper = document.createElement("div");
+  wrapper.className = ACTIONS_WRAPPER_CLASS;
+  applyBoxSpacing(wrapper);
+  Object.assign(wrapper.style, {
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "flex-start",
+    gap: "8px",
+    flexWrap: "wrap",
+  });
+  return wrapper;
 }
 
 function buildErrorBox(message, coords) {
   const box = document.createElement("div");
   box.className = TAGS_BOX_CLASS;
-  applyBoxSpacing(box);
   Object.assign(box.style, { display: "flex", flexDirection: "column", alignItems: "center", gap: "6px" });
 
   const msg = document.createElement("div");
@@ -213,7 +254,6 @@ function buildErrorBox(message, coords) {
 function buildInitialBox(coords) {
   const box = document.createElement("div");
   box.className = TAGS_BOX_CLASS;
-  applyBoxSpacing(box);
   Object.assign(box.style, { display: "flex", justifyContent: "center" });
 
   const button = document.createElement("button");
@@ -246,35 +286,104 @@ function loadTags(box, button, coords) {
       return;
     }
     // The table is full-width native markup, not the centered button/error
-    // layout, so the box's own flex centering is dropped -- only the
-    // top spacing carries over.
+    // layout, so the box's own flex centering is dropped.
     box.removeAttribute("style");
-    applyBoxSpacing(box);
     box.replaceChildren(buildTagsTable(response?.tags ?? []));
   });
 }
 
-function injectTagsBox(block) {
+/**
+ * "Carregar Preço" button -- on-demand counterpart to the price column
+ * overlay-scryfall.js's automatic run() already adds. Its own box is
+ * self-contained: once the lookup succeeds the price shows inline in the
+ * prints-table column exactly as it would have automatically, so there's
+ * nothing left for this box to display and it just removes itself.
+ *
+ * It was shown because the column wasn't there *yet* at injection time --
+ * overlay-scryfall.js's own automatic run() can still be mid-flight (it's a
+ * getSettings + queryPrices round trip through the background worker) and
+ * fill the column in a moment later on its own. A small observer scoped to
+ * just this block catches that and removes the now-redundant button without
+ * the user having to click it.
+ */
+function buildPriceButtonBox(block) {
+  const box = document.createElement("div");
+  box.className = PRICE_BOX_CLASS;
+  Object.assign(box.style, { display: "flex", justifyContent: "center" });
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "button-n";
+  button.textContent = "Carregar Preço";
+  applySamvButtonStyle(button);
+  button.addEventListener("click", () => {
+    button.disabled = true;
+    button.textContent = "Carregando...";
+    autoRemoveObserver.disconnect();
+    loadPriceForBlock(block, (ok) => {
+      if (ok) {
+        box.remove();
+      } else {
+        button.disabled = false;
+        button.textContent = "Carregar Preço";
+      }
+    });
+  });
+
+  const autoRemoveObserver = new MutationObserver(() => {
+    if (hasPriceColumn(block)) {
+      autoRemoveObserver.disconnect();
+      box.remove();
+    }
+  });
+  autoRemoveObserver.observe(block, { attributes: true, attributeFilter: [PROCESSED_ATTR] });
+
+  box.appendChild(button);
+  return box;
+}
+
+/**
+ * Injects the shared Tags + Price actions row into a card block. The two
+ * buttons' visibility is decided independently -- Tags shows unless this
+ * layout isn't tracked by Tagger (no coords) or the setting disables it;
+ * Price shows unless the column has already been added for this block (see
+ * hasPriceColumn in overlay-scryfall.js) -- neither condition depends on the
+ * other, so e.g. a layout Tagger doesn't cover still gets a Price button on
+ * its own.
+ */
+function injectActionsBox(block, tagsEnabled) {
   if (block.hasAttribute(TAGS_PROCESSED_ATTR)) return;
   const prints = block.querySelector("div.prints");
-  if (!prints) return;
+  if (!prints) {
+    logNotShown("Scryfall Tags", "Carregar Tags / Carregar Preço", 'elemento "div.prints" não encontrado no bloco da carta');
+    return;
+  }
 
   const coords = extractSetAndNumber(block);
-  if (!coords) return; // e.g. a layout Tagger doesn't track
+  const showTags = tagsEnabled && !!coords;
+  const showPrice = !hasPriceColumn(block);
+  // Not logged when both end up false: that's the routine, expected state
+  // for most blocks (tags disabled and/or price column already loaded), not
+  // a failure — logging it here would drown out real signal in noise.
+  if (!showTags && !showPrice) return;
 
-  prints.appendChild(buildInitialBox(coords));
+  const wrapper = createActionsWrapper();
+  if (showTags) wrapper.appendChild(buildInitialBox(coords));
+  if (showPrice) wrapper.appendChild(buildPriceButtonBox(block));
+
+  prints.appendChild(wrapper);
   block.setAttribute(TAGS_PROCESSED_ATTR, "1");
 }
 
-function runTagsOverlay() {
+function runActionsOverlay() {
   chrome.runtime.sendMessage({ action: "getSettings" }, (settings) => {
     if (chrome.runtime.lastError) {
-      tagsLog("Could not read settings:", chrome.runtime.lastError.message);
+      logNotShown("Scryfall Tags", "Carregar Tags / Carregar Preço", `erro ao ler configurações — ${chrome.runtime.lastError.message}`);
       return;
     }
-    if (settings?.addScryfallTagsButton === false) return;
-    document.querySelectorAll(SEL_TAGS_CARD_BLOCK).forEach(injectTagsBox);
+    const tagsEnabled = settings?.addScryfallTagsButton !== false;
+    document.querySelectorAll(SEL_TAGS_CARD_BLOCK).forEach((block) => injectActionsBox(block, tagsEnabled));
   });
 }
 
-observeAndRerun((mutations) => hasAddedNodeMatching(mutations, SEL_TAGS_CARD_BLOCK), runTagsOverlay);
+observeAndRerun((mutations) => hasAddedNodeMatching(mutations, SEL_TAGS_CARD_BLOCK), runActionsOverlay);

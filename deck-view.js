@@ -30,7 +30,12 @@ function getDeckBoards(deckId) {
   if (!source) return [];
 
   const boards = [];
-  const mainBlock = source.querySelector(":scope > .pdeck-block");
+  // Normally a direct child div.pdeck-block, but the site drops that class
+  // when the board consists of a single category (e.g. an all-land deck) —
+  // confirmed live on a deck whose Mainboard was just "Terrenos" — so this
+  // falls back to the first direct-child div either way, which is always the
+  // Mainboard's wrapper regardless of that class being present.
+  const mainBlock = source.querySelector(":scope > .pdeck-block") ?? source.querySelector(":scope > div");
   if (mainBlock) boards.push({ label: "Mainboard", el: mainBlock });
 
   source.querySelectorAll(":scope > hr.pdeck-maybe").forEach((hr) => {
@@ -216,7 +221,16 @@ function injectPriceTab(deckId) {
 function applyDefaultDeckView(deckId, view) {
   if (!view) return;
   if (view === "price") {
-    if (!document.getElementById(`dk-tab-price-${deckId}`)?.classList.contains("tab-selected")) {
+    const priceTab = document.getElementById(`dk-tab-price-${deckId}`);
+    // injectPriceTab can legitimately skip adding the tab (e.g.
+    // buildPriceView found no boards to show) — selectPriceView() hides
+    // every native view/tab unconditionally, so calling it here with no
+    // price tab to show in their place left the page with no card list and
+    // no view selected at all. Confirmed live on a deck whose Mainboard
+    // rendering made getDeckBoards() come back empty. Nothing to switch to,
+    // so just keep whatever LigaMagic already selected on its own.
+    if (!priceTab) return;
+    if (!priceTab.classList.contains("tab-selected")) {
       selectPriceView(deckId);
     }
     return;

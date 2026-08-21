@@ -41,58 +41,35 @@ function readCheapestMinFromPanel() {
 }
 
 /**
- * Dispatches hover events on a single edition icon and resolves with the
- * cheapest minimum price (Normal vs Foil) once the price panel updates.
- * Polls every 10 ms and gives up after 500 ms if no price appears.
+ * Cheapest "p" (preço mínimo) across every quality tier in one edition's
+ * price entry.
+ *
+ * Shape varies: a single-tier edition has `price` as a flat {p,m,g} object;
+ * a multi-tier one has it keyed by quality index ("0" Normal, "2" Foil, …),
+ * each either {p,m,g} or [] when that tier has no stock. Field mapping
+ * (p=min, m=médio/avg, g=geral/máximo) confirmed live against the rendered
+ * panel for a known edition.
  */
-function hoverEditionAndWaitForPrice(icon) {
-  return new Promise((resolve) => {
-    const panel = document.getElementById("container-price-mkp-card");
-    if (!panel) {
-      resolve(null);
-      return;
-    }
-
-    let settled = false;
-    const done = () => {
-      if (settled) return;
-      settled = true;
-      observer.disconnect();
-      resolve(readCheapestMinFromPanel());
-    };
-
-    const observer = new MutationObserver(done);
-    observer.observe(panel, {
-      childList: true,
-      subtree: true,
-      characterData: true,
-    });
-
-    icon.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
-    icon.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
-
-    // Poll every 10 ms; give up after 500 ms.
-    const deadline = Date.now() + 500;
-    (function poll() {
-      if (settled) return;
-      if (readCheapestMinFromPanel() != null) {
-        done();
-        return;
-      }
-      if (Date.now() >= deadline) {
-        done();
-        return;
-      }
-      setTimeout(poll, 10);
-    })();
+function cheapestFromEditionPrice(priceEntry) {
+  if (!priceEntry) return null;
+  const tiers = priceEntry.p !== undefined ? [priceEntry] : Object.values(priceEntry);
+  let min = null;
+  tiers.forEach((tier) => {
+    if (!tier || Array.isArray(tier)) return; // [] = no offers at that quality
+    const p = parseFloat(tier.p);
+    if (!isNaN(p) && (min == null || p < min)) min = p;
   });
+  return min;
 }
 
 // ── Scraper ───────────────────────────────────────────────────────────────────
 /**
- * Hovers every edition icon for the current card, reads the minimum price
- * from the header price panel after each hover, and returns the cheapest
- * value found across all editions.
+ * Reads the minimum price across every printing of the current card,
+ * straight from editionsCard.jsonEditions (see handleGetCardEditionsPrices
+ * in background.js) — the same per-edition price data the page's own hover
+ * handler reads, already loaded with the page rather than fetched per
+ * edition. No simulated hovering or waiting needed to find the cheapest one;
+ * a single hover at the end just re-selects it on screen for the user.
  *
  * Skips entirely if any marketplace filter is active.
  *
@@ -114,11 +91,10 @@ async function scrapeCardPage() {
     return [];
   }
 
-  // Skip the whole edition sweep below (which hovers every printing of the
-  // card, one at a time) when this card's price is still current. The
-  // background's price cache only ever holds entries scraped today — it
-  // prunes older ones as it loads — so a hit here means there is nothing to
-  // refresh.
+  // Skip reading every printing's price below when this card's price is
+  // still current. The background's price cache only ever holds entries
+  // scraped today — it prunes older ones as it loads — so a hit here means
+  // there is nothing to refresh.
   const cached = await sendMessage({ action: "queryPrices", cards: [name] });
   if (cached?.prices?.[name]) {
     log(`Card page: "${name}" already scraped today — skipping.`);
@@ -141,24 +117,31 @@ async function scrapeCardPage() {
     return [{ name, priceMin: price, priceAvg: null, priceMax: null }];
   }
 
-  log(`Card page: scanning ${icons.length} edition(s) for cheapest price…`);
+  log(`Card page: reading ${icons.length} edition(s) from page data…`);
+
+  const editionsData = await sendMessage({ action: "getCardEditionsPrices" });
+  if (!Array.isArray(editionsData)) {
+    log("Card page: edition price data unavailable — skipping.");
+    return [];
+  }
 
   let cheapest = null;
-  let cheapestIcon = null;
-  for (const icon of icons) {
-    const price = await hoverEditionAndWaitForPrice(icon);
-    if (price != null && (cheapest == null || price < cheapest)) {
-      cheapest = price;
-      cheapestIcon = icon;
+  let cheapestIdkey = null;
+  editionsData.forEach(({ idkey, price }) => {
+    const min = cheapestFromEditionPrice(price);
+    if (min != null && (cheapest == null || min < cheapest)) {
+      cheapest = min;
+      cheapestIdkey = idkey;
     }
-  }
+  });
 
   if (cheapest == null) {
     log("Card page: no price found across any edition.");
     return [];
   }
 
-  // Re-hover the cheapest edition so it stays displayed on screen.
+  // Hover the cheapest edition so it stays displayed on screen.
+  const cheapestIcon = icons.find((icon) => icon.dataset.editionKey === cheapestIdkey);
   if (cheapestIcon) {
     cheapestIcon.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
     cheapestIcon.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
@@ -203,7 +186,6 @@ function autoScrapeCardPage() {
   log("Card page detected — waiting for price panel…");
 
   waitForCardPageContent(async () => {
-    // Hover all editions and pick the cheapest price.
     const cards = await scrapeCardPage();
     if (cards.length > 0) {
       sendToBackground(cards, `card "${cards[0].name}"`);

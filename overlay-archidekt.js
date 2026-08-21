@@ -25,11 +25,60 @@ const SEL_CARD_ROW = '[class*="textViewCard_card"]';
 // data-attribute set on price elements we have already processed.
 const PROCESSED_ATTR = "data-lm-processed";
 
+/**
+ * Anchor for the pending-prices button: right after the "More" button in the
+ * deck's top toolbar. Archidekt's CSS-module classes there are hashed and
+ * change between deploys, and which button sits before "More" varies with
+ * viewer permissions ("Import cards" for the owner, "Clone deck" otherwise)
+ * — so this matches on the "More" button's own text instead of any class,
+ * then walks up to whichever ancestor is a direct child of the toolbar row,
+ * which is the actual flex sibling to insert after.
+ */
+function findToolbarAnchor() {
+  const container = document.querySelector('[class*="primaryActions"]');
+  if (!container) return null;
+  const moreBtn = [...container.querySelectorAll("button")].find(
+    (b) => b.textContent.trim() === "More",
+  );
+  if (!moreBtn) return null;
+  let node = moreBtn;
+  while (node.parentElement && node.parentElement !== container) node = node.parentElement;
+  return node.parentElement === container ? node : null;
+}
+
+const ARCHIDEKT_PRICE_COLUMN_HELP =
+  'Habilite clicando na engrenagem em "View as" → "Enabled columns" e marcando "Price".';
+
+/**
+ * Whether Archidekt is currently rendering its Price column at all — a
+ * per-viewer display toggle (View as → gear → Enabled columns → Price),
+ * independent from whether LigaMagic actually has a price for any given
+ * card. Read straight off the rendered rows rather than the toggle itself,
+ * since that live control only exists in the DOM while its own flyout menu
+ * is open.
+ */
+function isPriceColumnEnabled() {
+  const cards = document.querySelectorAll(SEL_CARD_BUTTON);
+  return cards.length === 0 || document.querySelectorAll(SEL_PRICE_LINK).length > 0;
+}
+
 // ── Card extraction ───────────────────────────────────────────────────────────
+/**
+ * Reads a card button's name, stripping MTG Arena's "A-" rebalance prefix
+ * (see stripArenaAlchemyPrefix) — Archidekt's title attribute carries it as
+ * plain text (e.g. "A-Dungeon Descent"), which would otherwise get queried
+ * against LigaMagic verbatim, and LigaMagic (paper-only) never carries a
+ * card under that Arena-only name.
+ */
+function cardNameOf(btn) {
+  const raw = btn?.getAttribute("title")?.trim();
+  return raw ? stripArenaAlchemyPrefix(raw) : null;
+}
+
 function extractCardNames() {
   const names = new Set();
   document.querySelectorAll(SEL_CARD_BUTTON).forEach((btn) => {
-    const name = btn.getAttribute("title")?.trim();
+    const name = cardNameOf(btn);
     if (name) names.add(name);
   });
   return [...names];
@@ -51,7 +100,7 @@ function applyPrices(priceMap, openLigaMagicOnClick = true) {
     if (!row) return;
 
     const btn = row.querySelector(SEL_CARD_BUTTON);
-    const name = btn?.getAttribute("title")?.trim();
+    const name = cardNameOf(btn);
     if (!name) return;
 
     const info = priceMap[name] ?? null;
@@ -124,7 +173,7 @@ function updateGroupTotals(priceMap) {
       const btn = row.querySelector(SEL_CARD_BUTTON);
       if (!btn) return;
 
-      const name = btn.getAttribute("title")?.trim();
+      const name = cardNameOf(btn);
       if (!name) return;
 
       // Quantity is the first text node of the button (before the card name span).
@@ -151,19 +200,36 @@ function updateGroupTotals(priceMap) {
       totalSpan.getAttribute("data-lm-original") ??
       totalSpan.textContent.trim();
     totalSpan.setAttribute("data-lm-original", originalGroupTitle);
-    totalSpan.textContent = `${originalGroupTitle}  ·  ${formatted}`;
+    // Tooltip stays plain text (title attributes can't carry markup); the
+    // visible text gets the BRL part as its own coloured span instead of
+    // plain text inheriting the row's default colour.
     totalSpan.title = `${originalGroupTitle}  ·  ${formatted}`;
+    totalSpan.textContent = `${originalGroupTitle}  ·  `;
+    const brlSpan = document.createElement("span");
+    brlSpan.style.color = "#33ac5f";
+    brlSpan.textContent = formatted;
+    totalSpan.appendChild(brlSpan);
   });
 
   log("Group totals updated.");
 }
 
 // ── Deck header total ─────────────────────────────────────────────────────────
+// The "Est cost: $231,48" trigger button in the deck header — CSS-module
+// class hash changes between deploys same as the card-row selectors above,
+// so this matches on the stable semantic prefix. Confirmed live 2026-08-21:
+// Archidekt has since redesigned this from a plain price span into a
+// tooltip-trigger button ("deckPrice_trigger__...", not "deckPrice_orange__..."
+// as before), which is why the old selector stopped matching anything.
+const SEL_DECK_EST_COST = '[class*="deckPrice_trigger"]';
+const DECK_TOTAL_BRL_CLASS = "lm-ext-deck-total-brl";
+
 /**
  * Sums qty × priceMin for every card in the entire deck (all groups except
- * "Maybeboard") and updates the deck header estimated cost span in-place.
- *
- * Target: <span class="deckPrice_orange__...">$281.98</span>
+ * "Maybeboard") and shows it as its own green span next to Archidekt's own
+ * "Est cost: $X" trigger button, the same way updateGroupTotals adds one per
+ * group — appended alongside the existing content rather than overwriting
+ * it, so Archidekt's own price and label stay exactly as they are.
  */
 function updateDeckTotal(priceMap) {
   const SEL_STACK = '[class*="stackWrapper_container"]';
@@ -177,7 +243,7 @@ function updateDeckTotal(priceMap) {
     if (titleEl?.textContent?.trim() === "Maybeboard") return;
 
     stack.querySelectorAll(SEL_CARD_BUTTON).forEach((btn) => {
-      const name = btn.getAttribute("title")?.trim();
+      const name = cardNameOf(btn);
       if (!name) return;
 
       const qtyText = btn.childNodes[0]?.textContent?.trim();
@@ -193,15 +259,19 @@ function updateDeckTotal(priceMap) {
 
   if (!hasAnyPrice) return;
 
-  const priceSpan = document.querySelector('[class*="deckPrice_orange"]');
-  if (!priceSpan) return;
+  const estCostButton = document.querySelector(SEL_DECK_EST_COST);
+  if (!estCostButton) return;
 
   const brlDeckTotal = `R$ ${total.toFixed(2).replace(".", ",")}`;
-  const originalDeckText =
-    priceSpan.getAttribute("data-lm-original") ?? priceSpan.textContent.trim();
-  priceSpan.setAttribute("data-lm-original", originalDeckText);
-  priceSpan.textContent = `${originalDeckText}  ·  ${brlDeckTotal}`;
-  log(`Deck total updated: R$ ${total.toFixed(2)}`);
+  let brlSpan = estCostButton.querySelector(`.${DECK_TOTAL_BRL_CLASS}`);
+  if (!brlSpan) {
+    brlSpan = document.createElement("span");
+    brlSpan.className = DECK_TOTAL_BRL_CLASS;
+    Object.assign(brlSpan.style, { color: "#33ac5f", marginLeft: "6px" });
+    estCostButton.appendChild(brlSpan);
+  }
+  brlSpan.textContent = `· ${brlDeckTotal}`;
+  log(`Deck total updated: ${brlDeckTotal}`);
 }
 // ── Main run ──────────────────────────────────────────────────────────────────
 function run() {
@@ -226,6 +296,37 @@ function run() {
       applyPrices(priceMap, openLigaMagicOnClick);
       updateGroupTotals(priceMap);
       updateDeckTotal(priceMap);
+
+      const missingNames = names.filter((n) => !priceMap[n]);
+      renderPendingPricesButton({
+        missingNames,
+        onDone: () => {
+          // applyPrices() marks every price link PROCESSED_ATTR regardless
+          // of whether a price was found, so a plain re-run would skip them
+          // and never pick up the price the backfill just cached — clear
+          // the marker on exactly the links whose card was missing.
+          document.querySelectorAll(SEL_PRICE_LINK).forEach((linkEl) => {
+            const row = linkEl.closest(SEL_CARD_ROW);
+            const name = cardNameOf(row?.querySelector(SEL_CARD_BUTTON));
+            if (name && missingNames.includes(name)) linkEl.removeAttribute(PROCESSED_ATTR);
+          });
+          run();
+        },
+        log,
+        contextName: getViewedDeckName(),
+        mountAfter: findToolbarAnchor(),
+        // The toolbar row already spaces its own children with a flexbox
+        // "gap" (7px, measured live) rather than per-item margins like
+        // Moxfield — nothing extra to add here, it applies automatically to
+        // this button too once inserted as a sibling.
+        toolbarGap: "0px",
+        // Matches the "More" button's own rendered height (measured live:
+        // 39px) — its padding/font-size don't line up with ours closely
+        // enough for padding alone to land on the same height.
+        btnHeight: "39px",
+        checkPriceColumnEnabled: isPriceColumnEnabled,
+        priceColumnHelp: ARCHIDEKT_PRICE_COLUMN_HELP,
+      });
     });
   });
 }

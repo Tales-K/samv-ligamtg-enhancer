@@ -43,6 +43,14 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
  *     → re-runs the LigaMagic deck page's own hover-tooltip init in the
  *       page's MAIN world (see handleReinitTooltips) — fire-and-forget
  *
+ *   { action: "getCardEditionsPrices" }
+ *     → reads editionsCard.jsonEditions off an individual card page — the
+ *       page's own already-loaded per-edition price data (see
+ *       handleGetCardEditionsPrices) — a page MAIN-world global, so only the
+ *       background worker can reach it
+ *     → resolves with { idkey, price }[] | null
+ *
+
  *   { action: "getStoreCache" }
  *     → returns every store known so far, keyed by store ID — used to
  *       populate the "lojas conhecidas" autocomplete and the popup's "Lojas
@@ -102,6 +110,26 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
  *       inherit from an ancestor tag) and dropping "artwork" (illustration)
  *       tags entirely
  *     → resolves with { tags: {name, slug}[] } | { error }
+ *
+ *   { action: "loadPendingPrices", cards: string[], contextName?: string }
+ *     → backfills LigaMagic prices for cards the Archidekt/Moxfield/Scryfall
+ *       overlays found no cached price for (see handleLoadPendingPrices):
+ *       maintains a single LigaMagic deck this extension owns per account
+ *       (id kept in chrome.storage.local, see loadPendingPricesDeck) — the
+ *       first ever call creates it, every later call just edits its card
+ *       list to the current batch (in batches of up to 100) in a background
+ *       tab, and lets the existing deck scraper (scraper-deck.js) read all
+ *       their prices off that one page. The deck is never deleted; contextName
+ *       (e.g. the Moxfield deck being viewed) only names it at that first
+ *       creation (see buildTempDeckName) so the one deck every account ends up
+ *       with doesn't carry an identical fixed name across every install.
+ *     → fire-and-forget: does NOT use sendResponse (see the handler below for
+ *       why). Progress travels back to the calling tab as
+ *       { action: "pendingPricesProgress", done, total, failedNames } after
+ *       each batch; done >= total on that message doubles as the completion
+ *       signal. failedNames accumulates the names of every card LigaMagic's
+ *       own deck form rejected as unrecognized (see
+ *       scrapeBatchViaManagedDeck) — empty when everything resolved normally.
  */
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "sendPrices") {
@@ -123,6 +151,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "reinitTooltips") {
     handleReinitTooltips(sender.tab?.id);
     return false; // fire-and-forget, no response expected
+  }
+  if (request.action === "getCardEditionsPrices") {
+    handleGetCardEditionsPrices(sender.tab?.id).then(sendResponse);
+    return true;
   }
   if (request.action === "getStoreCache") {
     loadStoreIdCache().then(sendResponse);
@@ -160,6 +192,17 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     handleFetchCardTags(request.set, request.number).then(sendResponse);
     return true;
   }
+  if (request.action === "loadPendingPrices") {
+    // Fire-and-forget: this can run for many seconds across several tabs, and
+    // an onMessage response channel kept open that long is unreliable — Chrome
+    // can silently drop it well before the work (and its side effects) are
+    // actually done. Progress/completion travel back to the calling tab as
+    // their own one-way chrome.tabs.sendMessage calls instead (see
+    // handleLoadPendingPrices), each one self-contained regardless of
+    // whatever happened to this original message's channel.
+    handleLoadPendingPrices(request.cards, sender.tab?.id, request.contextName);
+    return false;
+  }
 });
 
 // ── Core logic ───────────────────────────────────────────────────────────────
@@ -167,6 +210,13 @@ async function handleSendPrices(cards) {
   if (!Array.isArray(cards) || cards.length === 0) {
     return { error: "No cards provided." };
   }
+
+  // Basic lands always answer as a synthetic R$0,00 (see isBasicLandName in
+  // handleQueryPrices) regardless of anything stored here, so a real scrape
+  // of one — someone browsing its actual LigaMagic page — would only ever
+  // sit in the cache unread. Dropped before it's ever written.
+  cards = cards.filter((c) => !isBasicLandName(c.name));
+  if (cards.length === 0) return { noPrice: true };
 
   const stats = await loadStats();
 
@@ -194,13 +244,29 @@ async function handleSendPrices(cards) {
       priceMax: c.priceMax,
       sentAt: now,
     };
-    cache.prices[c.name] = {
+    const entry = {
       name: c.name,
       priceMin: c.priceMin,
       priceAvg: c.priceAvg,
       priceMax: c.priceMax,
       updatedAt,
     };
+    cache.prices[priceCacheKey(c.name)] = entry;
+
+    // LigaMagic's own scraped name for a transform/MDFC/split card is the
+    // authority on its real "Front // Back" punctuation (confirmed live: it
+    // doesn't always match what an overlay guessed when submitting a card —
+    // e.g. LigaMagic's own catalogue calls a card "Koma, Cosmos Serpent",
+    // comma included, when an overlay's own combined-name guess for the same
+    // card had no comma). Indexing this entry under its front face alone too
+    // means a later combined-name query for the SAME card — however that
+    // query happens to punctuate the back face — still finds it via
+    // handleQueryPrices' own front-face fallback, without needing to guess or
+    // reproduce LigaMagic's exact punctuation.
+    const separatorIdx = c.name.indexOf(" // ");
+    if (separatorIdx > 0) {
+      cache.prices[priceCacheKey(c.name.slice(0, separatorIdx))] = entry;
+    }
   });
   stats.totalUpdates += newCards.length;
   await saveStats(stats);
@@ -212,19 +278,79 @@ async function handleSendPrices(cards) {
   };
 }
 
+// The 5 basic land types have no real LigaMagic listing worth tracking —
+// nobody buys them, and without this they'd sit in every deck's "missing
+// prices" count forever, since LigaMagic never returns anything for them.
+// Answered with a synthetic R$0,00 entry, computed fresh on every query
+// instead of written to the cache once, so it can never be evicted or age
+// into yellow/red like a real scrape would — it's always exactly "updated
+// now". This alone is also what keeps them out of missingNames on every
+// overlay (Archidekt/Moxfield/Scryfall): that list is just "names the query
+// came back without an entry for" (see each overlay's own
+// `names.filter((n) => !priceMap[n])`), and a basic land never comes back
+// without one.
+const BASIC_LAND_NAMES = new Set(["plains", "island", "swamp", "mountain", "forest"]);
+
+function isBasicLandName(name) {
+  return BASIC_LAND_NAMES.has(name.trim().toLowerCase());
+}
+
+function basicLandPriceEntry(name) {
+  return {
+    name,
+    priceMin: 0,
+    priceAvg: 0,
+    priceMax: 0,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 async function handleQueryPrices(names) {
   if (!Array.isArray(names) || names.length === 0) {
     return { error: "No card names provided." };
   }
 
   // Purely a local lookup — only cards this browser has itself scraped on
-  // LigaMagic today are present in the cache. There is no remote fallback.
+  // LigaMagic are present in the cache (across any past day; see
+  // loadPriceCache). There is no remote fallback.
   const cache = await loadPriceCache();
 
   // Return only the names that were requested.
   const prices = {};
   names.forEach((n) => {
-    if (cache.prices[n]) prices[n] = cache.prices[n];
+    if (isBasicLandName(n)) {
+      prices[n] = basicLandPriceEntry(n);
+      return;
+    }
+
+    const direct = cache.prices[priceCacheKey(n)];
+    if (direct) {
+      prices[n] = direct;
+      return;
+    }
+    // Transform/MDFC/split cards: LigaMagic sometimes only catalogues these
+    // under the front face alone, not the combined "Front // Back" form this
+    // extension queries by (see scrapeBatchViaManagedDeck's own front-face
+    // retry in the pending-prices backfill, and cardNameFromLinkRaw's
+    // comments in overlay-moxfield.js). If the front face alone is already
+    // priced — from that retry, or from ordinary browsing — it's the same
+    // physical card, so it still answers a query for the combined name.
+    const separatorIdx = n.indexOf(" // ");
+    if (separatorIdx > 0) {
+      const frontFace = cache.prices[priceCacheKey(n.slice(0, separatorIdx))];
+      if (frontFace) {
+        prices[n] = frontFace;
+        return;
+      }
+      // Rarer still: neither the combined name nor the front face is right,
+      // only the back face is (see scrapeBatchViaManagedDeck's back-face
+      // retry stage — confirmed live for a Moxfield row whose front-face
+      // text was actually a printing's cosmetic flavor name, not a real
+      // front face at all, so only the card's real oracle name — read off
+      // the slug as the "back face" — was ever a valid card to query for).
+      const backFace = cache.prices[priceCacheKey(n.slice(separatorIdx + 4))];
+      if (backFace) prices[n] = backFace;
+    }
   });
   return { prices };
 }
@@ -255,6 +381,31 @@ function handleReinitTooltips(tabId) {
       }
     },
   });
+}
+
+/**
+ * Reads `editionsCard.jsonEditions` off an individual card page — the same
+ * per-edition price data (Normal/Foil min-avg-max) the page uses to update
+ * the price panel when the user hovers an edition icon, already loaded with
+ * the page and not fetched again per edition. `editionsCard` is a page
+ * global, unreachable from the content script's isolated world, so this runs
+ * in the MAIN world like handleReinitTooltips above.
+ */
+async function handleGetCardEditionsPrices(tabId) {
+  if (tabId == null) return null;
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId },
+      world: "MAIN",
+      func: () => {
+        if (typeof editionsCard === "undefined" || !editionsCard.jsonEditions) return null;
+        return Object.values(editionsCard.jsonEditions).map((e) => ({ idkey: e.idkey, price: e.price }));
+      },
+    });
+    return results[0]?.result ?? null;
+  } catch {
+    return null;
+  }
 }
 
 // ── Custom store search ─────────────────────────────────────────────────────
@@ -795,6 +946,433 @@ async function handleFetchCardTags(set, number) {
   }
 }
 
+// ── Pending-prices backfill (Archidekt/Moxfield/Scryfall overlays) ─────────────
+// Backfills missing prices via a single LigaMagic deck this extension owns
+// per account, in a background tab. Landing on that deck's page is enough —
+// scraper-deck.js (already declared as a content script for ligamagic.com.br)
+// reads every card's price off it exactly like it does for any real deck, no
+// per-card round trip needed. One batch at a time, never in parallel,
+// matching the "no request bursts against LigaMagic" caution used everywhere
+// else in this file.
+//
+// Unlike an earlier version of this feature, the deck is never deleted: the
+// first ever backfill on an account creates it (via "?view=dks/novo",
+// exactly like a normal deck) and stores its id (see
+// loadPendingPricesDeck/savePendingPricesDeck); every later backfill edits
+// that same deck's card list in place (via "?view=dks/editar&id=…", the same
+// URL LigaMagic's own "Editar Deck" link on a deck's page uses — confirmed
+// live to be the same `formNewDeck` form, same field names, same submit
+// button, same success redirect, and the same "Preenchimento inválido"
+// `#lst-error-dk` validation as creation) rather than creating (and
+// deleting) a fresh one every run. That sidesteps the whole class of
+// fragility a create-then-delete cycle has — a delete that fires but doesn't
+// land, a tab closed mid-navigation, etc. — by never deleting at all.
+//
+// Before trusting a stored deck id, ensureManagedDeck re-verifies it live:
+// the id's own "?view=dks/editar" page must still render (deck still exists
+// and is owned by this account) AND its form's card-id/name must match what
+// was recorded at creation — the same "is this actually still ours" spirit
+// the old delete-safety check had, just applied to editing instead of
+// deleting. Either check failing falls back to creating a fresh deck and
+// overwriting the stored id, so a deck the user deleted by hand (or a
+// corrupted/foreign id) never gets treated as ours.
+const PENDING_PRICE_BATCH_SIZE = 100; // cards per deck edit
+const PENDING_PRICE_MIN_CARDS = 7; // LigaMagic's own minimum for a "Livre" deck
+const PENDING_PRICE_DECK_FORMAT = "22"; // "Livre (Sem formato definido)"
+const PENDING_PRICE_TAB_TIMEOUT_MS = 60_000; // background tabs get throttled by Chrome under load — creation itself is normally under a second
+const PENDING_PRICE_SCRAPE_SETTLE_MS = 2_500; // scraper-deck.js reads straight off the DOM — no per-card wait needed, just a moment to run
+// Upper bound on how many times one batch re-submits after dropping cards
+// LigaMagic flagged as unrecognized (see scrapeBatchViaManagedDeck). In
+// practice one retry is enough — the form flags every unrecognized line in
+// the same validation pass, not one at a time — this only guards against
+// looping forever if that ever isn't true.
+const PENDING_PRICE_MAX_INVALID_ROUNDS = 5;
+
+/**
+ * Name for the one managed deck this extension will ever create on an
+ * account. Only called the very first time (see ensureManagedDeck) — once
+ * the deck exists, its name is left alone forever, so this only needs to
+ * avoid a fixed literal at that single moment, not vary run to run. If every
+ * account running this extension created that deck under the exact same
+ * name, the name alone would be enough to pick every extension user out of
+ * LigaMagic's own data. Prefers contextName — the deck/page the missing
+ * cards actually came from on that first run (e.g. the Moxfield deck being
+ * viewed) — so the deck's name looks like an ordinary one a real player
+ * might have typed, and varies by account. Falls back to the first card's
+ * own name when there's no such context (Scryfall has no deck to name it
+ * after).
+ */
+function buildTempDeckName(contextName, names) {
+  const sanitized = (contextName ?? "").replace(/\s+/g, " ").trim().slice(0, 60);
+  if (sanitized) return sanitized;
+  return (names[0] ?? "Lista").slice(0, 60);
+}
+
+// ── Managed deck storage ─────────────────────────────────────────────────────
+// Two flat values (not a list/registry — there is ever only one deck) holding
+// the id and name of the single deck this extension manages per account.
+// Kept as a pair rather than just the id so ensureManagedDeck can double-check
+// "is this actually still our deck" against something more specific than the
+// id alone (see the reasoning above the PENDING_PRICE_* constants) — the same
+// role the old create-then-delete flow's "does the page still show our
+// deck's distinctive name" check served.
+const PENDING_PRICES_DECK_ID_KEY = "pendingPricesDeckId";
+const PENDING_PRICES_DECK_NAME_KEY = "pendingPricesDeckName";
+
+async function loadPendingPricesDeck() {
+  const stored = await chrome.storage.local.get([PENDING_PRICES_DECK_ID_KEY, PENDING_PRICES_DECK_NAME_KEY]);
+  const id = stored[PENDING_PRICES_DECK_ID_KEY];
+  const name = stored[PENDING_PRICES_DECK_NAME_KEY];
+  return id && name ? { id, name } : null;
+}
+
+async function savePendingPricesDeck({ id, name }) {
+  await chrome.storage.local.set({
+    [PENDING_PRICES_DECK_ID_KEY]: id,
+    [PENDING_PRICES_DECK_NAME_KEY]: name,
+  });
+}
+
+async function handleLoadPendingPrices(names, originTabId, contextName) {
+  if (!Array.isArray(names) || names.length === 0) return;
+
+  const unique = [...new Set(names)];
+  let done = 0;
+  const failedNames = [];
+
+  for (let i = 0; i < unique.length; i += PENDING_PRICE_BATCH_SIZE) {
+    const batch = unique.slice(i, i + PENDING_PRICE_BATCH_SIZE);
+    try {
+      // contextName only matters if this batch ends up creating the deck
+      // (no valid stored one yet) — see buildTempDeckName/ensureManagedDeck.
+      const { dropped } = await scrapeBatchViaManagedDeck(batch, contextName);
+      failedNames.push(...dropped);
+    } catch {
+      // Unexpected failure (not the "some cards unrecognized" case, which
+      // scrapeBatchViaManagedDeck already handles and reports via `dropped`) —
+      // best-effort: the whole batch stays missing rather than silently
+      // looking "done" with nothing to show for it.
+      failedNames.push(...batch);
+    }
+    done += batch.length;
+    if (originTabId == null) continue;
+    // done === total (always true on the last batch) doubles as the
+    // completion signal — the caller doesn't need a separate "done" message,
+    // one message type is one less thing that can go missing.
+    chrome.tabs
+      .sendMessage(originTabId, { action: "pendingPricesProgress", done, total: unique.length, failedNames })
+      .catch(() => {}); // calling tab may have navigated away or closed — nothing to report to
+  }
+}
+
+/** "1 Card A\n1 Card B\n…", padded up to the 7-card minimum by bumping the last line's quantity. */
+function buildDecklistText(names) {
+  const lines = names.map((n) => `1 ${n}`);
+  const shortfall = PENDING_PRICE_MIN_CARDS - names.length;
+  if (shortfall > 0) {
+    const lastIdx = lines.length - 1;
+    lines[lastIdx] = `${1 + shortfall} ${names[lastIdx]}`;
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Opens the extension's stored managed deck in its edit page and verifies
+ * live that it's still safe to treat as ours — the deck must still exist
+ * (its "?view=dks/editar" form actually renders, which LigaMagic only does
+ * for a deck this account owns) AND the form's own hidden deck-id field plus
+ * its current name must match what was recorded when the deck was created.
+ * Returns `{ tabId, deckId }` (the tab left open, positioned on the loaded
+ * edit form) when both checks pass, or `null` when there's no stored deck at
+ * all, or either check fails — the caller falls back to creating a fresh
+ * deck in that case, exactly like a first-ever run.
+ */
+async function ensureManagedDeck() {
+  const stored = await loadPendingPricesDeck();
+  if (!stored) return null;
+
+  let tab;
+  try {
+    tab = await chrome.tabs.create({
+      url: `https://www.ligamagic.com.br/?view=dks/editar&id=${stored.id}`,
+      active: false,
+    });
+    await waitForTabComplete(tab.id, PENDING_PRICE_TAB_TIMEOUT_MS);
+
+    const [{ result }] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: (expectedId, expectedName) => {
+        const form = document.getElementById("formNewDeck");
+        if (!form) return false; // deck deleted, or not owned by this account
+        const iddeck = form.querySelector('input[name="iddeck"]')?.value;
+        return iddeck === expectedId && form.deck_nome?.value === expectedName;
+      },
+      args: [stored.id, stored.name],
+    });
+
+    if (result === true) return { tabId: tab.id, deckId: stored.id };
+
+    await chrome.tabs.remove(tab.id).catch(() => {});
+    return null;
+  } catch {
+    if (tab) await chrome.tabs.remove(tab.id).catch(() => {});
+    return null;
+  }
+}
+
+/**
+ * Gets the current batch's prices onto the single deck this extension
+ * manages for the account, creating it first if there isn't one yet (or the
+ * stored one no longer checks out — see ensureManagedDeck). Retries with
+ * unrecognized cards dropped when LigaMagic's own form rejects some of them
+ * (see readInvalidDeckListLines) — identical validation on both the create
+ * and the edit form, confirmed live. Returns `{ dropped }` — the names that
+ * never made it onto the deck, empty when everything was accepted on the
+ * first try.
+ *
+ * A transform/MDFC/split card's combined "Front // Back" name is frequently
+ * the exact thing LigaMagic's own validation rejects — confirmed live across
+ * a spread of real decks (e.g. "Azusa's Many Journeys // Likeness of the
+ * Seeker", "Clearwater Pathway // Murkwater Pathway"): LigaMagic catalogues
+ * these under the front face alone, the same class of mismatch already
+ * documented for some cards in cardNameFromLinkRaw (overlay-moxfield.js).
+ * Less commonly, neither the combined name nor the front face is right and
+ * only the BACK face resolves — confirmed live on a Moxfield row where the
+ * visible front-face text turned out to be a printing's cosmetic flavor name
+ * (e.g. "Luca Stadium", a Final Fantasy crossover treatment of the plain,
+ * single-faced "Strixhaven Stadium") rather than a real double-faced card's
+ * front face at all; overlay-moxfield.js can't always tell those apart from
+ * its own markup alone (see cardNameFromLinkRaw's own doc comment on why),
+ * so this is where the ambiguity actually gets resolved — by asking
+ * LigaMagic which reading it recognizes, in order, instead of guessing once.
+ *
+ * When a round flags a "//" name invalid, this substitutes just the front
+ * face and gives it its own retry; if THAT also gets flagged, it substitutes
+ * the back face for a third and final try; only then does it give up.
+ * `substitutionOf` tracks, for a name currently mid-retry, which combined
+ * name it came from and which stage it's at, so: (a) trying the back face
+ * only happens once, not looping forever between the two, and (b) a
+ * still-failing retry (or a still-open round-budget cutoff) gets reported
+ * back under the name the caller actually asked about, not whichever
+ * internal substitute was being tried. handleQueryPrices has the matching
+ * other half for the common front-face case: a query for the combined name
+ * that isn't cached directly also checks the front face alone, since that's
+ * what actually ends up in the price cache once that substitution succeeds
+ * (a successful back-face substitution needs no such help — handleSendPrices
+ * already caches under whatever exact name LigaMagic's own scrape reports,
+ * and a lone back-face name has nothing further to reconcile).
+ */
+async function scrapeBatchViaManagedDeck(names, contextName) {
+  let currentNames = [...names];
+  const droppedNames = [];
+  const substitutionOf = new Map(); // substitute name -> { original, stage: "front" | "back" }
+
+  const managed = await ensureManagedDeck();
+  const isNew = managed === null;
+  const tabId = managed
+    ? managed.tabId
+    : (await chrome.tabs.create({ url: "https://www.ligamagic.com.br/?view=dks/novo&tipo=2", active: false })).id;
+  // Only matters if isNew — the deck's permanent name is decided once, right
+  // here, and never touched again (see buildTempDeckName).
+  const deckName = isNew ? buildTempDeckName(contextName, names) : null;
+
+  try {
+    if (isNew) await waitForTabComplete(tabId, PENDING_PRICE_TAB_TIMEOUT_MS);
+
+    for (let round = 0; currentNames.length > 0 && round <= PENDING_PRICE_MAX_INVALID_ROUNDS; round++) {
+      if (isNew) {
+        await fillAndSubmitCreateForm(tabId, currentNames, deckName);
+      } else {
+        await fillAndSubmitEditForm(tabId, currentNames);
+      }
+      const outcome = await waitForDeckPageOrInvalidLines(tabId, PENDING_PRICE_TAB_TIMEOUT_MS);
+
+      if (outcome.deckId) {
+        if (isNew) await savePendingPricesDeck({ id: outcome.deckId, name: deckName });
+
+        // scraper-deck.js runs automatically as soon as the deck page's card
+        // list is in the DOM — a short settle is enough, no need to poll.
+        await new Promise((r) => setTimeout(r, PENDING_PRICE_SCRAPE_SETTLE_MS));
+        return { dropped: droppedNames };
+      }
+
+      if (outcome.invalidLineIndexes?.length) {
+        // Same line order as the decklist text this round submitted
+        // (buildDecklistText emits exactly one line per name), so the
+        // indexes map straight back onto currentNames.
+        const retryNames = [];
+        outcome.invalidLineIndexes.forEach((i) => {
+          const flaggedName = currentNames[i];
+          if (!flaggedName) return;
+          const existing = substitutionOf.get(flaggedName);
+          const original = existing?.original ?? flaggedName;
+
+          if (!existing) {
+            // First time this name has been flagged — if it's a combined
+            // "Front // Back" name, give the front face its own shot before
+            // giving up on it.
+            const separatorIdx = flaggedName.indexOf(" // ");
+            const frontFace = separatorIdx > 0 ? flaggedName.slice(0, separatorIdx).trim() : "";
+            if (frontFace && frontFace !== flaggedName) {
+              const backFace = flaggedName.slice(separatorIdx + 4).trim();
+              substitutionOf.set(frontFace, { original, stage: "front", backFace });
+              retryNames.push(frontFace);
+              return;
+            }
+          } else if (existing.stage === "front" && existing.backFace && existing.backFace !== flaggedName) {
+            // The front face didn't work either — try the back face alone
+            // before giving up (the "Luca Stadium" case above).
+            substitutionOf.set(existing.backFace, { original, stage: "back" });
+            retryNames.push(existing.backFace);
+            return;
+          }
+
+          // Either there was never a "//" to fall back on, or every face
+          // this card has has already been tried — genuinely unrecognized.
+          // Report it under the name the caller actually asked about.
+          droppedNames.push(original);
+        });
+        currentNames = currentNames
+          .filter((_, i) => !outcome.invalidLineIndexes.includes(i))
+          .concat(retryNames);
+        continue; // retry with the trimmed/substituted list — same tab, same deck
+      }
+
+      // Neither a landed deck page nor a readable "unrecognized cards"
+      // signal within the timeout — an unexplained failure, not the
+      // invalid-card case this function otherwise handles. Give up on
+      // whatever's left rather than retrying blindly.
+      break;
+    }
+
+    // Either every remaining card ended up flagged invalid, or the loop gave
+    // up after an unexplained failure, or the round budget ran out on a
+    // substitution retry still in flight — either way nothing left in
+    // currentNames ever made it onto the deck this round. Reported under the
+    // original combined name for anything that was a face substitute.
+    droppedNames.push(...currentNames.map((n) => substitutionOf.get(n)?.original ?? n));
+    return { dropped: droppedNames };
+  } finally {
+    chrome.tabs.remove(tabId).catch(() => {});
+  }
+}
+
+/** Fills and submits the "?view=dks/novo" form to create the managed deck for the first time. */
+async function fillAndSubmitCreateForm(tabId, names, deckName) {
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    func: (decklist, formatValue, name) => {
+      // Close any "Preenchimento inválido" modal left over from a previous
+      // round so it doesn't stack on top of the next one.
+      document.querySelector(".close-modal")?.click();
+
+      const form = document.getElementById("formNewDeck");
+      if (!form) return;
+      form.deck_formato.value = formatValue;
+      form.deck_nome.value = name;
+      form.txt_deck.value = decklist;
+      const priv = [...form.querySelectorAll('input[name="deck_privacidade"]')].find((r) => r.value === "1");
+      if (priv) priv.checked = true;
+      // The real submit button, not form.requestSubmit() — this form's own
+      // submit handling only runs off the button's click event.
+      form.querySelector('[name="btCadDeck"]')?.click();
+    },
+    args: [buildDecklistText(names), PENDING_PRICE_DECK_FORMAT, deckName],
+  });
+}
+
+/**
+ * Fills and submits the "?view=dks/editar" form for the single deck this
+ * extension manages, replacing its entire card list with the current batch.
+ * Every other field (name, format, privacy) is left exactly as the page
+ * loaded it with — only the card list is meant to change between runs, the
+ * deck's name in particular is set once at creation and never touched again
+ * (see buildTempDeckName).
+ */
+async function fillAndSubmitEditForm(tabId, names) {
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    func: (decklist) => {
+      document.querySelector(".close-modal")?.click();
+
+      const form = document.getElementById("formNewDeck");
+      if (!form) return;
+      form.txt_deck.value = decklist;
+      form.querySelector('[name="btCadDeck"]')?.click();
+    },
+    args: [buildDecklistText(names)],
+  });
+}
+
+async function waitForTabComplete(tabId, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const tab = await chrome.tabs.get(tabId).catch(() => null);
+    if (tab?.status === "complete") return true;
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  return false;
+}
+
+/**
+ * Polls the submitted "?view=dks/novo" (create) or "?view=dks/editar"
+ * (edit) tab for one of two outcomes — confirmed live to behave identically
+ * either way:
+ *   - success: the URL becomes "?view=dks/deck&id=…" — returns { deckId }.
+ *   - rejection: the form's own "Preenchimento inválido" validation flagged
+ *     one or more lines — returns { invalidLineIndexes }, read via
+ *     readInvalidDeckListLines.
+ * Returns `{}` if neither happens before the timeout (a genuine, unexplained
+ * hang — the caller treats that as a failure it won't retry).
+ */
+async function waitForDeckPageOrInvalidLines(tabId, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const tab = await chrome.tabs.get(tabId).catch(() => null);
+    if (tab?.status === "complete") {
+      const match = tab.url?.match(/[?&]view=dks\/deck&id=(\d+)/);
+      if (match) return { deckId: match[1] };
+
+      const invalidLineIndexes = await readInvalidDeckListLines(tabId);
+      if (invalidLineIndexes) return { invalidLineIndexes };
+    }
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  return {};
+}
+
+/**
+ * Reads which lines of the deck form's card-list textarea LigaMagic's own
+ * client-side validation flagged as unrecognized when the "Preenchimento
+ * inválido" modal appears — the same validation on both the create and the
+ * edit form. The signal lives in `#lst-error-dk`: one `<img>` per decklist
+ * line, in the same order as the submitted text, using `redarrow.png` for a
+ * flagged line and `spacer.gif` for an accepted one — confirmed live on both
+ * forms by inspecting the DOM after a submit that included both recognized
+ * and unrecognized card names. Returns 0-based line indexes (mapping 1:1
+ * onto the names array a round submitted, since buildDecklistText emits
+ * exactly one line per name), or null when the marker isn't present yet or
+ * nothing was flagged.
+ */
+async function readInvalidDeckListLines(tabId) {
+  try {
+    const [{ result }] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        const errDiv = document.getElementById("lst-error-dk");
+        if (!errDiv) return null;
+        const indexes = [...errDiv.querySelectorAll("img")]
+          .map((img, i) => (img.src.includes("redarrow") ? i : -1))
+          .filter((i) => i !== -1);
+        return indexes.length > 0 ? indexes : null;
+      },
+    });
+    return result ?? null;
+  } catch {
+    return null; // tab mid-navigation or not yet scriptable — caller keeps polling
+  }
+}
+
 // ── Storage ────────────────────────────────────────────────────────────────────────
 // Settings
 const DEFAULT_SETTINGS = {
@@ -804,15 +1382,21 @@ const DEFAULT_SETTINGS = {
   openLigaMagicOnClick: true, // whether the BRL price in overlays (Archidekt/Moxfield/Scryfall) links to the card's LigaMagic page
   addScryfallTagsButton: true, // whether the "Carregar Tags" button is added to a card's prints box on Scryfall
   addScryfallFilterButton: true, // whether the default-filter button is added next to Scryfall's search field
-  scryfallDefaultFilter: "", // filter terms that button appends to the search (e.g. "sort:edhrec")
+  scryfallDefaultFilter: "sort:edhrec", // filter terms that button appends to the search
   disclaimerAcknowledged: false, // whether the user has dismissed the first-open hobby/non-affiliation disclaimer in the popup
+  // Gates both createLogger's trace output and logNotShown's "why didn't
+  // this render" warnings (see overlay-utils.js) in every injected overlay.
+  // Off by default so a real user's console stays quiet; surfaced only via
+  // a hidden checkbox in the popup footer (click the version number).
+  showDebugLogs: false,
   defaultDeckView: "price", // deck page tab to auto-select on load; "" keeps LigaMagic's own default
   addPriceView: true, // whether the "Preço" deck visualization tab is injected at all
   addMeusDecksTab: true, // whether the "Meus Decks" tab is injected into the main menu
   addMeusPedidosTab: true, // whether the "Meus Pedidos" tab is injected next to it
   removeLeiloesTab: true, // whether the "Leilões" tab is removed from the main menu
   removeForumTab: true, // whether the "Fórum" tab is removed from the main menu
-  replaceGerarImagemWithCopiarDeck: true, // whether "Gerar Imagem" becomes "Copiar Deck" on deck pages
+  replaceGerarImagemWithCopiarDeck: true, // whether "Copiar Deck" is added to deck pages
+  removeGerarImagemButton: true, // whether the native "Gerar Imagem" button is removed — independent of the above, so both can be shown at once
   enableCustomStoreSearch: true, // whether the "Lojas Customizadas" section is injected into Compra por Lista
   addLoadDefaultsButton: true, // whether the "Carregar filtro padrão" button is injected into Compra por Lista
   rememberListaFilters: false, // reapply the last manual filter selection on load, instead of the configured defaults
@@ -887,19 +1471,39 @@ function saveSettings(partial) {
   return settingsWrites;
 }
 
-// Price cache — keyed by card name. Only entries with updatedAt = today are
-// kept; stale entries are pruned on every load so the cache never grows beyond
-// the cards scraped today.
+// Price cache — keyed by a case-insensitive normalization of the card name
+// (see priceCacheKey), not the raw string. LigaMagic's own href-encoded card
+// names (read by cardNameFromHref in content-utils.js, off whatever page
+// happened to scrape the price) aren't always consistently cased against
+// each other for the exact same card (confirmed live: the same deck page
+// encoded "Bloodforged Battle-axe" and "Curious obsession" with a lowercase
+// letter where the card's real name capitalizes it) — a plain exact-string
+// cache key silently never matches the correctly-cased name every overlay
+// (Archidekt/Moxfield/Scryfall) actually queries by, so a card can have a
+// real cached price and still be reported as "not found". `name` inside each
+// entry keeps the exact casing it was scraped with, for reference; nothing
+// reads the cache by iterating its keys as display text (the popup's own
+// "sent today" list is a separate, exact-cased structure — see
+// stats.todayCards in handleSendPrices).
+function priceCacheKey(name) {
+  return name.trim().toLowerCase();
+}
+
+// Every entry ever scraped is kept indefinitely — priceColor() in
+// overlay-utils.js is what ages a price into yellow/red as it gets older
+// (< 7 days green, 7-30 yellow, > 30 red), so the cache itself has to
+// actually hold prices from previous days for that to ever show anything
+// but green. An earlier version of this function discarded everything not
+// from today on every load — since handleSendPrices reads via this
+// function and immediately writes the result back, that silently erased
+// every older price the very next time any new card was scraped, which is
+// why yellow/red were never seen in practice. Entries are small (well
+// under a KB each) and there's no realistic number of unique card names
+// that would threaten chrome.storage.local's quota, so there's no need to
+// cap this by age or count.
 async function loadPriceCache() {
-  const today = getTodayStr();
   const { fetchedPrices } = await chrome.storage.local.get("fetchedPrices");
-  if (!fetchedPrices) return { prices: {} };
-  const prices = Object.fromEntries(
-    Object.entries(fetchedPrices.prices ?? {}).filter(
-      ([, row]) => row.updatedAt?.slice(0, 10) === today,
-    ),
-  );
-  return { prices };
+  return { prices: fetchedPrices?.prices ?? {} };
 }
 
 async function savePriceCache(cache) {

@@ -138,6 +138,83 @@ function updateCardLinks(box, name) {
   if (edhrecLink) edhrecLink.href = edhrecCardUrl(name);
 }
 
+// ── Card-hover price line ────────────────────────────────────────────────────
+const CARD_HOVER_PRICE_ID = "lm-ext-card-hover-price";
+
+function fmtBRL(value) {
+  return `R$ ${value.toFixed(2).replace(".", ",")}`;
+}
+
+/**
+ * Formats whatever price fields are actually available — min/avg/max come
+ * from a full deck-page scrape, but a lone card page only ever fills in
+ * priceMin. Labelling min/avg/max only makes sense once there's more than
+ * one value to tell apart; a single number reads better on its own.
+ */
+function formatCardPriceLine(info) {
+  const parts = [];
+  const hasRange = info.priceAvg != null || info.priceMax != null;
+  if (info.priceMin != null) parts.push(hasRange ? `mín ${fmtBRL(info.priceMin)}` : fmtBRL(info.priceMin));
+  if (info.priceAvg != null) parts.push(`méd ${fmtBRL(info.priceAvg)}`);
+  if (info.priceMax != null) parts.push(`máx ${fmtBRL(info.priceMax)}`);
+  return parts.join("  ·  ");
+}
+
+/** Built once per tooltip box, right after the card image — same width as the image, hidden until a price is actually found. */
+function injectCardHoverPriceLine(box) {
+  if (box.querySelector(`#${CARD_HOVER_PRICE_ID}`)) return;
+
+  const line = document.createElement("div");
+  line.id = CARD_HOVER_PRICE_ID;
+  Object.assign(line.style, {
+    display: "none",
+    width: "312px",
+    boxSizing: "border-box",
+    margin: "4px 4px 0",
+    padding: "4px 0",
+    textAlign: "center",
+    fontSize: "12px",
+    fontWeight: "700",
+    color: SAMV_PURPLE,
+    // Whitish backing so the text stays readable regardless of whatever's
+    // behind the hover preview at that point on the page.
+    background: "rgba(255, 255, 255, 0.92)",
+    borderRadius: "4px",
+  });
+
+  const loadedImgs = box.querySelector(".stickyloadedimgs");
+  if (loadedImgs) loadedImgs.insertAdjacentElement("afterend", line);
+  else box.appendChild(line);
+}
+
+/**
+ * Shows this card's price below the hover preview when it's already sitting
+ * in the local price cache (chrome.storage.local) — a plain, free lookup,
+ * never a fetch. Cards this browser hasn't scraped today (on a LigaMagic
+ * deck page, card page, or via the pending-prices backfill) just get no
+ * price line at all rather than one that lies about "no price on
+ * LigaMagic" — that would misrepresent "we haven't looked yet" as "there
+ * really is none".
+ */
+function updateCardHoverPrice(box, name) {
+  injectCardHoverPriceLine(box);
+  const line = box.querySelector(`#${CARD_HOVER_PRICE_ID}`);
+  if (!line) return;
+
+  line.style.display = "none";
+  line.dataset.forName = name;
+
+  sendMessage({ action: "queryPrices", cards: [name] }).then((response) => {
+    // The cursor may already be over a different card by the time this
+    // resolves — bail rather than showing a stale price under it.
+    if (line.dataset.forName !== name) return;
+    const info = response?.prices?.[name];
+    if (!info || info.priceMin == null) return;
+    line.textContent = formatCardPriceLine(info);
+    line.style.display = "block";
+  });
+}
+
 /**
  * LigaMagic's stickytooltip.js hides the box as soon as the cursor leaves
  * the card link (gated by a `stickytooltip.isdocked` flag it owns, meant to
@@ -194,7 +271,9 @@ function initHoverBridge(box) {
     const link = e.target.closest?.(STICKY_LAZY_SELECTOR);
     if (!link) return;
     cancelHide();
-    updateCardLinks(box, cardNameFromStickyLazy(link));
+    const name = cardNameFromStickyLazy(link);
+    updateCardLinks(box, name);
+    updateCardHoverPrice(box, name);
   });
 
   box.addEventListener("mouseleave", hide);
@@ -212,4 +291,61 @@ function initCardHoverLinks() {
   });
 }
 
+// ── Individual card page (?view=cards/card&card=...) ────────────────────────
+const CARD_PAGE_LINKS_CLASS = "lm-ext-card-page-links";
+
+function isIndividualCardPage() {
+  return new URLSearchParams(window.location.search).get("view") === "cards/card";
+}
+
+/**
+ * Adds Scryfall/EDHREC buttons right after the favorite-heart icon
+ * (.item-fav), before the "..." actions menu, in the card page's header.
+ */
+function injectCardPageLinks() {
+  const fav = document.querySelector(".item-fav");
+  if (!fav || document.querySelector(`.${CARD_PAGE_LINKS_CLASS}`)) return false;
+
+  const name = document.querySelector(".item-name-en")?.textContent?.trim();
+  if (!name) return false;
+
+  const bar = document.createElement("div");
+  bar.className = CARD_PAGE_LINKS_CLASS;
+  Object.assign(bar.style, { display: "flex", gap: "6px", alignItems: "center" });
+
+  [
+    { label: "Scryfall", href: scryfallSearchUrl(name) },
+    { label: "EDHREC", href: edhrecCardUrl(name) },
+  ].forEach(({ label, href }) => {
+    const link = document.createElement("a");
+    link.textContent = label;
+    link.href = href;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    Object.assign(link.style, {
+      padding: "6px 10px",
+      borderRadius: "4px",
+      fontSize: "12px",
+      fontWeight: "700",
+      textDecoration: "none",
+      whiteSpace: "nowrap",
+    });
+    applySamvStyle(link);
+    bar.appendChild(link);
+  });
+
+  fav.insertAdjacentElement("afterend", bar);
+  log("Injected Scryfall/EDHREC card-page links.");
+  return true;
+}
+
+function initCardPageLinks() {
+  if (!isIndividualCardPage()) return;
+  getSettings().then((settings) => {
+    if (settings?.addCardHoverLinks === false) return;
+    waitForElement(injectCardPageLinks);
+  });
+}
+
 initCardHoverLinks();
+initCardPageLinks();

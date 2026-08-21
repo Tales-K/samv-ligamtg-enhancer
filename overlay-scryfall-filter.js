@@ -61,7 +61,17 @@ function buildFilterButton(filter) {
 function injectFilterButton(filter) {
   if (document.getElementById(FILTER_BUTTON_ID)) return;
   const row = document.querySelector(SEL_HEADER_ROW);
-  if (!row || !document.querySelector(SEL_FILTER_SEARCH_FIELD)) return;
+  const searchField = document.querySelector(SEL_FILTER_SEARCH_FIELD);
+  if (!row || !searchField) {
+    logNotShown(
+      "Scryfall Filter",
+      "Filtro padrão",
+      !row
+        ? `elemento "${SEL_HEADER_ROW}" não encontrado na página`
+        : `campo de busca "${SEL_FILTER_SEARCH_FIELD}" não encontrado na página`,
+    );
+    return;
+  }
 
   row.appendChild(buildFilterButton(filter));
   filterLog("Injected default-filter button.");
@@ -70,14 +80,20 @@ function injectFilterButton(filter) {
 function runFilterOverlay() {
   chrome.runtime.sendMessage({ action: "getSettings" }, (settings) => {
     if (chrome.runtime.lastError) {
-      filterLog("Could not read settings:", chrome.runtime.lastError.message);
+      logNotShown("Scryfall Filter", "Filtro padrão", `erro ao ler configurações — ${chrome.runtime.lastError.message}`);
       return;
     }
-    if (settings?.addScryfallFilterButton === false) return;
+    if (settings?.addScryfallFilterButton === false) {
+      logNotShown("Scryfall Filter", "Filtro padrão", "desabilitado nas configurações (addScryfallFilterButton = false)");
+      return;
+    }
     // With no filter saved the button would have nothing to add, so it isn't
     // shown at all rather than appearing as a dead control.
     const filter = (settings?.scryfallDefaultFilter ?? "").trim();
-    if (!filter) return;
+    if (!filter) {
+      logNotShown("Scryfall Filter", "Filtro padrão", "nenhum filtro padrão configurado (scryfallDefaultFilter vazio)");
+      return;
+    }
     injectFilterButton(filter);
   });
 }

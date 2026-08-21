@@ -91,6 +91,15 @@ document.addEventListener("DOMContentLoaded", () => {
   const versionEl = document.getElementById("appVersion");
   if (versionEl) versionEl.textContent = `v${chrome.runtime.getManifest().version}`;
 
+  // Hidden debug-logs checkbox, revealed by clicking the version number —
+  // the actual setting (showDebugLogs) is loaded/saved through the generic
+  // checkboxIds mechanism below like any other setting; this just toggles
+  // whether its control is visible at all.
+  const debugLogsToggle = document.getElementById("debugLogsToggle");
+  versionEl?.addEventListener("click", () => {
+    debugLogsToggle.style.display = debugLogsToggle.style.display === "flex" ? "none" : "flex";
+  });
+
   if (IS_LOCAL) {
     const clearStorageBtn = document.getElementById("clearStorageBtn");
     clearStorageBtn.style.display = "inline-block";
@@ -128,6 +137,7 @@ document.addEventListener("DOMContentLoaded", () => {
     "removeLeiloesTab",
     "removeForumTab",
     "replaceGerarImagemWithCopiarDeck",
+    "removeGerarImagemButton",
     "addCardHoverLinks",
     "rememberListaFilters",
     "addLoadDefaultsButton",
@@ -135,6 +145,7 @@ document.addEventListener("DOMContentLoaded", () => {
     "addCopyListaButton",
     "addAnaliseEconomia",
     "addCarrinhoCopyButton",
+    "showDebugLogs",
   ];
   const selectIds = ["defaultDeckView"];
   const textIds = ["scryfallDefaultFilter"];

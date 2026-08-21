@@ -92,12 +92,25 @@ function showCopiedFeedback(button, text = "Copiado!") {
 }
 
 // ── Price parsing ─────────────────────────────────────────────────────────────
+/**
+ * A deck page's price column always renders all three font elements (min/avg/
+ * max) even for a card with no actual listing under the print the deck-price
+ * widget reads (confirmed live: a Secret Lair / foil-exclusive card with a
+ * real, non-zero price on its own individual card page still shows literal
+ * "0,00" text in a deck's price column, since that widget only ever exposes
+ * the non-foil print's price and this kind of card has none). No real card on
+ * a paper marketplace is actually sold for R$0,00, so a parsed value of
+ * exactly zero means "no price data here", the same as blank text — treated
+ * as null rather than a real price so callers don't cache or display it as
+ * one (see scraper-deck.js, scraper-card.js, deck-view.js's price sort).
+ */
 function parsePrice(text) {
   if (!text) return null;
   // Brazilian format uses '.' as thousands separator and ',' as decimal separator.
   // e.g. "1.439,99" → strip dots → "1439,99" → swap comma → "1439.99"
   const num = parseFloat(text.trim().replace(/\./g, "").replace(",", "."));
-  return isNaN(num) ? null : num;
+  if (isNaN(num) || num === 0) return null;
+  return num;
 }
 
 // ── Card name decoding ────────────────────────────────────────────────────────
