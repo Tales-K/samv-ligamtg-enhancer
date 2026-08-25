@@ -146,18 +146,17 @@ function fmtBRL(value) {
 }
 
 /**
- * Formats whatever price fields are actually available — min/avg/max come
- * from a full deck-page scrape, but a lone card page only ever fills in
- * priceMin. Labelling min/avg/max only makes sense once there's more than
- * one value to tell apart; a single number reads better on its own.
+ * min/avg/max side by side on one line, colored green/yellow/red instead of
+ * labelled — the color alone says which value is which, so no "mín/méd/máx"
+ * prefix is needed. A lone card page only ever fills in priceMin, so a
+ * single-value card just shows the one green number with no spacers.
  */
-function formatCardPriceLine(info) {
-  const parts = [];
-  const hasRange = info.priceAvg != null || info.priceMax != null;
-  if (info.priceMin != null) parts.push(hasRange ? `mín ${fmtBRL(info.priceMin)}` : fmtBRL(info.priceMin));
-  if (info.priceAvg != null) parts.push(`méd ${fmtBRL(info.priceAvg)}`);
-  if (info.priceMax != null) parts.push(`máx ${fmtBRL(info.priceMax)}`);
-  return parts.join("  ·  ");
+function buildCardPriceParts(info) {
+  return [
+    [info.priceMin, SAMV_PRICE_MIN_COLOR],
+    [info.priceAvg, SAMV_PRICE_AVG_COLOR],
+    [info.priceMax, SAMV_PRICE_MAX_COLOR],
+  ].filter(([value]) => value != null);
 }
 
 /** Built once per tooltip box, right after the card image — same width as the image, hidden until a price is actually found. */
@@ -172,10 +171,10 @@ function injectCardHoverPriceLine(box) {
     boxSizing: "border-box",
     margin: "4px 4px 0",
     padding: "4px 0",
-    textAlign: "center",
+    alignItems: "center",
+    justifyContent: "center",
     fontSize: "12px",
     fontWeight: "700",
-    color: SAMV_PURPLE,
     // Whitish backing so the text stays readable regardless of whatever's
     // behind the hover preview at that point on the page.
     background: "rgba(255, 255, 255, 0.92)",
@@ -209,9 +208,26 @@ function updateCardHoverPrice(box, name) {
     // resolves — bail rather than showing a stale price under it.
     if (line.dataset.forName !== name) return;
     const info = response?.prices?.[name];
-    if (!info || info.priceMin == null) return;
-    line.textContent = formatCardPriceLine(info);
-    line.style.display = "block";
+    if (!info || info.priceMin == null) {
+      logNotShown("Preço no hover da carta", `sem preço em cache para "${name}"`);
+      return;
+    }
+
+    line.replaceChildren();
+    buildCardPriceParts(info).forEach(([value, color], i) => {
+      if (i > 0) {
+        const spacer = document.createElement("span");
+        spacer.textContent = "•";
+        spacer.style.margin = "0 6px";
+        spacer.style.color = "#999";
+        line.appendChild(spacer);
+      }
+      const span = document.createElement("span");
+      span.textContent = fmtBRL(value);
+      span.style.color = color;
+      line.appendChild(span);
+    });
+    line.style.display = "flex";
   });
 }
 
@@ -281,7 +297,10 @@ function initHoverBridge(box) {
 
 function initCardHoverLinks() {
   getSettings().then((settings) => {
-    if (settings?.addCardHoverLinks === false) return;
+    if (settings?.addCardHoverLinks === false) {
+      logNotShown("Scryfall/EDHREC/Copiar nome (hover)", "desabilitado nas configurações (addCardHoverLinks = false)");
+      return;
+    }
     waitForElement(() => {
       const box = document.getElementById(STICKY_TOOLTIP_ID);
       if (!box) return false;
@@ -303,11 +322,22 @@ function isIndividualCardPage() {
  * (.item-fav), before the "..." actions menu, in the card page's header.
  */
 function injectCardPageLinks() {
+  if (document.querySelector(`.${CARD_PAGE_LINKS_CLASS}`)) return true;
+
   const fav = document.querySelector(".item-fav");
-  if (!fav || document.querySelector(`.${CARD_PAGE_LINKS_CLASS}`)) return false;
+  if (!fav) {
+    logNotShown("Scryfall/EDHREC (página de carta)", "âncora .item-fav ainda não apareceu — pode ser só carregamento em andamento");
+    return false;
+  }
 
   const name = document.querySelector(".item-name-en")?.textContent?.trim();
-  if (!name) return false;
+  if (!name) {
+    logNotShown(
+      "Scryfall/EDHREC (página de carta)",
+      "nome resolvido não encontrado (.item-name-en ausente/vazio — provável página de busca ambígua, sem um card único)",
+    );
+    return false;
+  }
 
   const bar = document.createElement("div");
   bar.className = CARD_PAGE_LINKS_CLASS;
@@ -342,7 +372,10 @@ function injectCardPageLinks() {
 function initCardPageLinks() {
   if (!isIndividualCardPage()) return;
   getSettings().then((settings) => {
-    if (settings?.addCardHoverLinks === false) return;
+    if (settings?.addCardHoverLinks === false) {
+      logNotShown("Scryfall/EDHREC (página de carta)", "desabilitado nas configurações (addCardHoverLinks = false)");
+      return;
+    }
     waitForElement(injectCardPageLinks);
   });
 }

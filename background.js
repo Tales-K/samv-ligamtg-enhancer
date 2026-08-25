@@ -15,6 +15,89 @@
 // ── Lifecycle ────────────────────────────────────────────────────────────────
 chrome.runtime.onInstalled.addListener(() => {
   seedStoreIdCache().catch(() => {});
+  registerSearchCardContextMenu();
+});
+
+// ── "Pesquisar carta" context menu ───────────────────────────────────────────
+// Right-click on selected text anywhere in the browser (not limited to
+// LigaMagic/Archidekt/Moxfield/Scryfall — a name can be selected on any
+// page) offers a search on each of the three sites this extension already
+// links out to elsewhere (card-hover-links.js's own Scryfall/EDHREC
+// buttons, LIGAMAGIC_BASE everywhere else).
+const SEARCH_MENU_ROOT_ID = "lm-ext-search-card";
+const SEARCH_MENU_TARGETS = {
+  "lm-ext-search-card-ligamagic": {
+    title: "LigaMagic",
+    // Same URL every card-price link elsewhere in this extension already
+    // uses. LigaMagic's own search there tolerates an inexact name --
+    // confirmed live: a name that doesn't match anything verbatim still
+    // lands on a results page listing near-matches, rather than a dead
+    // end, so a rough / partial text selection still gets somewhere useful.
+    buildUrl: (text) => `https://www.ligamagic.com.br/?view=cards%2Fcard&card=${encodeURIComponent(text)}`,
+  },
+  "lm-ext-search-card-scryfall": {
+    title: "Scryfall",
+    // A plain (non-quoted) search, unlike card-hover-links.js's own
+    // scryfallSearchUrl -- that one wraps a name already known to be
+    // exact (extracted from LigaMagic's own DOM) in `!"..."` for a single
+    // precise match. Text selected by hand on an arbitrary page has no
+    // such guarantee, so this uses Scryfall's normal fuzzy search instead,
+    // which still finds the card off a rough or partial selection.
+    buildUrl: (text) => `https://scryfall.com/search?q=${encodeURIComponent(text)}`,
+  },
+  "lm-ext-search-card-edhrec": {
+    title: "EDHREC",
+    // EDHREC has no general full-text search page to link straight into,
+    // so this reuses the same front-face-only, accent-stripped slug
+    // card-hover-links.js's edhrecCardSlug already builds for a known-exact
+    // name -- the tradeoff (and the reason that function's own doc comment
+    // exists) is that an imprecise selection lands on a 404 there rather
+    // than a results page, same limitation the hover-link feature already
+    // has today, not a new one this introduces.
+    buildUrl: (text) => {
+      const slug = text
+        .split(" // ")[0]
+        .normalize("NFD")
+        .replace(/[̀-ͯ]/g, "")
+        .toLowerCase()
+        .replace(/['’]/g, "")
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+      return `https://edhrec.com/cards/${slug}`;
+    },
+  },
+};
+
+/**
+ * (Re)builds the submenu from scratch against the current
+ * addCardSearchContextMenu setting -- called both at startup and, via
+ * saveSettings, right after the popup checkbox changes, so toggling it off
+ * removes the menu from the browser immediately, no reload needed.
+ */
+async function registerSearchCardContextMenu() {
+  const settings = await loadSettings();
+  // Clears any items a previous install/reload left registered -- create()
+  // throws on a duplicate id otherwise, which the dev workflow's repeated
+  // chrome.runtime.reload() would hit immediately. Also what turns the whole
+  // submenu off when the setting is disabled: removeAll() with nothing
+  // recreated after it.
+  chrome.contextMenus.removeAll(() => {
+    if (settings.addCardSearchContextMenu === false) return;
+    chrome.contextMenus.create({
+      id: SEARCH_MENU_ROOT_ID,
+      title: 'Pesquisar carta "%s"',
+      contexts: ["selection"],
+    });
+    Object.entries(SEARCH_MENU_TARGETS).forEach(([id, { title }]) => {
+      chrome.contextMenus.create({ id, parentId: SEARCH_MENU_ROOT_ID, title, contexts: ["selection"] });
+    });
+  });
+}
+
+chrome.contextMenus.onClicked.addListener((info) => {
+  const target = SEARCH_MENU_TARGETS[info.menuItemId];
+  if (!target || !info.selectionText) return;
+  chrome.tabs.create({ url: target.buildUrl(info.selectionText.trim()) });
 });
 
 // Any LigaMagic page can carry a `screenfilter.stores` client-side object
@@ -979,7 +1062,14 @@ async function handleFetchCardTags(set, number) {
 const PENDING_PRICE_BATCH_SIZE = 100; // cards per deck edit
 const PENDING_PRICE_MIN_CARDS = 7; // LigaMagic's own minimum for a "Livre" deck
 const PENDING_PRICE_DECK_FORMAT = "22"; // "Livre (Sem formato definido)"
-const PENDING_PRICE_TAB_TIMEOUT_MS = 60_000; // background tabs get throttled by Chrome under load — creation itself is normally under a second
+// Was 60s; the slow real case this originally sized for was a stuck/failed
+// attempt (deck deleted, not logged in) silently timing out instead of
+// failing fast — both are now caught immediately by isLoggedOutTab/
+// ensureManagedDeck's own check rather than by waiting this out, so a much
+// shorter ceiling is enough for the genuinely slow-but-working case
+// (creation/edit itself is normally under a second even under Chrome's
+// background-tab throttling).
+const PENDING_PRICE_TAB_TIMEOUT_MS = 10_000;
 const PENDING_PRICE_SCRAPE_SETTLE_MS = 2_500; // scraper-deck.js reads straight off the DOM — no per-card wait needed, just a moment to run
 // Upper bound on how many times one batch re-submits after dropping cards
 // LigaMagic flagged as unrecognized (see scrapeBatchViaManagedDeck). In
@@ -1046,8 +1136,37 @@ async function handleLoadPendingPrices(names, originTabId, contextName) {
       // contextName only matters if this batch ends up creating the deck
       // (no valid stored one yet) — see buildTempDeckName/ensureManagedDeck.
       const { dropped } = await scrapeBatchViaManagedDeck(batch, contextName);
-      failedNames.push(...dropped);
-    } catch {
+      // One more attempt per name the deck form never recognized, before
+      // reporting it as failed — see resolveNameViaCardSearch. Sequential,
+      // not parallel: `dropped` is empty on the overwhelming majority of
+      // runs (nothing recognized as unusual), so there's normally nothing
+      // here at all, and on the rare run where there is, a burst of
+      // several LigaMagic page loads at once is exactly the kind of
+      // request pattern worth avoiding on their own site.
+      for (const name of dropped) {
+        const resolved = await resolveNameViaCardSearch(name);
+        if (!resolved) failedNames.push(name);
+      }
+    } catch (err) {
+      if (err?.loggedOut) {
+        // The session is signed out — every remaining batch would fail the
+        // exact same way, so this stops here instead of grinding through
+        // them first. A distinct signal rather than folding it into
+        // failedNames: those cards aren't actually "not found on
+        // LigaMagic", the whole attempt never got to ask.
+        if (originTabId != null) {
+          chrome.tabs
+            .sendMessage(originTabId, {
+              action: "pendingPricesProgress",
+              done: unique.length,
+              total: unique.length,
+              failedNames,
+              loggedOut: true,
+            })
+            .catch(() => {});
+        }
+        return;
+      }
       // Unexpected failure (not the "some cards unrecognized" case, which
       // scrapeBatchViaManagedDeck already handles and reports via `dropped`) —
       // best-effort: the whole batch stays missing rather than silently
@@ -1076,6 +1195,31 @@ function buildDecklistText(names) {
   return lines.join("\n");
 }
 
+// Present in the header nav on every LigaMagic page for a signed-out
+// visitor ("Efetuar login" -> ?view=logar), and confirmed live to be absent
+// once authenticated. Both the deck-create and deck-edit forms render
+// nothing but an "Ops! Você precisa estar logado..." message when signed
+// out — same as a deleted/foreign deck ("form not found"), which is why
+// this needs its own check: without it, a signed-out session silently
+// retries/times out and reports the batch's cards as "not found on
+// LigaMagic", which has nothing to do with the actual problem.
+const LOGIN_LINK_SELECTOR = 'a[href*="view=logar"]';
+
+function newLoggedOutError() {
+  const err = new Error("LOGGED_OUT");
+  err.loggedOut = true;
+  return err;
+}
+
+async function pageIsLoggedOut(tabId) {
+  const [{ result }] = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: (selector) => !!document.querySelector(selector),
+    args: [LOGIN_LINK_SELECTOR],
+  });
+  return result === true;
+}
+
 /**
  * Opens the extension's stored managed deck in its edit page and verifies
  * live that it's still safe to treat as ours — the deck must still exist
@@ -1084,8 +1228,11 @@ function buildDecklistText(names) {
  * its current name must match what was recorded when the deck was created.
  * Returns `{ tabId, deckId }` (the tab left open, positioned on the loaded
  * edit form) when both checks pass, or `null` when there's no stored deck at
- * all, or either check fails — the caller falls back to creating a fresh
- * deck in that case, exactly like a first-ever run.
+ * all, or the ownership check fails — the caller falls back to creating a
+ * fresh deck in that case, exactly like a first-ever run. Throws a
+ * `loggedOut`-flagged error instead, without falling back, when the form is
+ * missing because the session itself is signed out — falling back to
+ * "create a new deck" would just fail the exact same way a second time.
  */
 async function ensureManagedDeck() {
   const stored = await loadPendingPricesDeck();
@@ -1101,21 +1248,27 @@ async function ensureManagedDeck() {
 
     const [{ result }] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
-      func: (expectedId, expectedName) => {
+      func: (expectedId, expectedName, loginSelector) => {
         const form = document.getElementById("formNewDeck");
-        if (!form) return false; // deck deleted, or not owned by this account
+        if (!form) {
+          // deck deleted/not owned, or the session is signed out — the
+          // caller tells these apart by whether the login link is present.
+          return document.querySelector(loginSelector) ? "logged-out" : "not-found";
+        }
         const iddeck = form.querySelector('input[name="iddeck"]')?.value;
-        return iddeck === expectedId && form.deck_nome?.value === expectedName;
+        return iddeck === expectedId && form.deck_nome?.value === expectedName ? "ok" : "not-found";
       },
-      args: [stored.id, stored.name],
+      args: [stored.id, stored.name, LOGIN_LINK_SELECTOR],
     });
 
-    if (result === true) return { tabId: tab.id, deckId: stored.id };
+    if (result === "ok") return { tabId: tab.id, deckId: stored.id };
 
     await chrome.tabs.remove(tab.id).catch(() => {});
+    if (result === "logged-out") throw newLoggedOutError();
     return null;
-  } catch {
+  } catch (err) {
     if (tab) await chrome.tabs.remove(tab.id).catch(() => {});
+    if (err?.loggedOut) throw err;
     return null;
   }
 }
@@ -1177,7 +1330,15 @@ async function scrapeBatchViaManagedDeck(names, contextName) {
   const deckName = isNew ? buildTempDeckName(contextName, names) : null;
 
   try {
-    if (isNew) await waitForTabComplete(tabId, PENDING_PRICE_TAB_TIMEOUT_MS);
+    if (isNew) {
+      await waitForTabComplete(tabId, PENDING_PRICE_TAB_TIMEOUT_MS);
+      // ensureManagedDeck already ruled this out for the edit-page path
+      // (managed === null can also mean "no deck stored yet", not just
+      // "signed out") — this is the create-page path's own check for the
+      // same thing, since a signed-out ?view=dks/novo renders no form
+      // either and would otherwise just retry/time out for no reason.
+      if (await pageIsLoggedOut(tabId)) throw newLoggedOutError();
+    }
 
     for (let round = 0; currentNames.length > 0 && round <= PENDING_PRICE_MAX_INVALID_ROUNDS; round++) {
       if (isNew) {
@@ -1254,6 +1415,78 @@ async function scrapeBatchViaManagedDeck(names, contextName) {
     return { dropped: droppedNames };
   } finally {
     chrome.tabs.remove(tabId).catch(() => {});
+  }
+}
+
+/**
+ * Last-resort fallback for a name scrapeBatchViaManagedDeck's own retry
+ * ladder never got onto the deck (droppedNames) — visits LigaMagic's own
+ * card-search page for the bare name and lets the site's own
+ * single-match-vs-many-matches behavior decide the outcome, rather than
+ * guessing one:
+ *   - Exactly one match: content.js's scrapeCardPage() runs automatically
+ *     (the same way it would for any real visit to that page) and caches
+ *     the price under the page's own resolved name.
+ *   - No match, or more than one: lands on a results list instead of a
+ *     card page. This is the common outcome for a token -- LigaMagic
+ *     disambiguates same-named token prints with its own internal index
+ *     ("City's Blessing (#49)") that has no relation to any collector
+ *     number Archidekt/Moxfield/Scryfall carry for the same token, so
+ *     nothing here can tell which listed variant is the right one.
+ *     scrapeCardPage() already no-ops on that page (no .item-name-en/
+ *     .item-name element there, confirmed live against both a real
+ *     single-match card and a real ambiguous token search) -- nothing
+ *     gets cached, same as an outright unrecognized name.
+ *
+ * Reads the page's resolved name (rather than diffing the cache before/
+ * after) to tell the two cases apart, so a card that already had today's
+ * price cached under its own name -- meaning scrapeCardPage() itself skips
+ * writing anything, per its own "already scraped today" check -- doesn't
+ * get misread as unresolved just because nothing new appeared.
+ *
+ * Because that automatic scrape caches under the PAGE's resolved name (e.g.
+ * "City's Blessing (#49)"), not the name this was called with (e.g. plain
+ * "City's Blessing"), a second cache entry is written under the original
+ * name too -- otherwise a caller asking for the original name would still
+ * find nothing despite the price now sitting in the cache under a
+ * different key.
+ *
+ * @returns {Promise<boolean>} whether `name` now has a price in the cache.
+ */
+async function resolveNameViaCardSearch(name) {
+  const tab = await chrome.tabs.create({
+    url: `https://www.ligamagic.com.br/?view=cards/card&card=${encodeURIComponent(name)}`,
+    active: false,
+  });
+  try {
+    await waitForTabComplete(tab.id, PENDING_PRICE_TAB_TIMEOUT_MS);
+    // scraper-deck.js/scraper-card.js run automatically as soon as their
+    // page's own content is in the DOM — same settle time
+    // scrapeBatchViaManagedDeck already gives that scrape elsewhere.
+    await new Promise((r) => setTimeout(r, PENDING_PRICE_SCRAPE_SETTLE_MS));
+
+    const [{ result: resolvedName }] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => document.querySelector(".item-name-en")?.textContent?.trim() ?? null,
+    });
+    if (!resolvedName) return false;
+
+    const cache = await loadPriceCache();
+    const resolvedKey = priceCacheKey(resolvedName);
+    const resolvedEntry = cache.prices[resolvedKey];
+    // The page resolved to one card, but scrapeCardPage() itself found no
+    // price for it (a marketplace filter left on, or genuinely no listing)
+    // — nothing to copy forward.
+    if (!resolvedEntry) return false;
+
+    const originalKey = priceCacheKey(name);
+    if (originalKey !== resolvedKey) {
+      cache.prices[originalKey] = { ...resolvedEntry, name };
+      await savePriceCache(cache);
+    }
+    return true;
+  } finally {
+    await chrome.tabs.remove(tab.id).catch(() => {});
   }
 }
 
@@ -1391,6 +1624,7 @@ const DEFAULT_SETTINGS = {
   showDebugLogs: false,
   defaultDeckView: "price", // deck page tab to auto-select on load; "" keeps LigaMagic's own default
   addPriceView: true, // whether the "Preço" deck visualization tab is injected at all
+  addDeckGridPrices: true, // whether the deck page's native "Grid" view gets a Mín/Méd/Máx price block under each card
   addMeusDecksTab: true, // whether the "Meus Decks" tab is injected into the main menu
   addMeusPedidosTab: true, // whether the "Meus Pedidos" tab is injected next to it
   removeLeiloesTab: true, // whether the "Leilões" tab is removed from the main menu
@@ -1409,6 +1643,7 @@ const DEFAULT_SETTINGS = {
   analiseEconomiaCache: null,
   addCarrinhoCopyButton: true, // whether the "Copiar Lista" button is injected into the cart's shopping list
   addCardHoverLinks: true, // whether Scryfall/EDHREC buttons are added to the card-hover image tooltip
+  addCardSearchContextMenu: true, // whether the "Pesquisar carta" right-click submenu is registered, browser-wide
   // How "Copiar Lista de Compras" formats each card line, remembered across
   // uses so the panel reopens the way it was last left. `detalhado` swaps in
   // LigaMagic's own format and makes the other four inert (see
@@ -1463,10 +1698,64 @@ async function loadSettings() {
 // means each one reads what the previous just stored.
 let settingsWrites = Promise.resolve();
 
+// Every host this extension injects into — mirrors manifest.json's own
+// host_permissions, used below to scope which open tabs are worth pushing a
+// live settings change to.
+const INJECTED_HOST_PATTERNS = [
+  "*://*.ligamagic.com.br/*",
+  "*://*.archidekt.com/*",
+  "*://*.moxfield.com/*",
+  "*://*.scryfall.com/*",
+];
+
 function saveSettings(partial) {
   settingsWrites = settingsWrites.then(async () => {
     const current = await loadSettings();
-    await chrome.storage.local.set({ settings: { ...current, ...partial } });
+    const updated = { ...current, ...partial };
+    await chrome.storage.local.set({ settings: updated });
+
+    // Most settings are fine to only take effect on a tab's next reload,
+    // same as it always has — but a couple are only useful if they reach
+    // tabs already open: a debug-logging toggle (you're trying to catch
+    // something live, not on the next reload) and the Scryfall default
+    // filter (set from the gear panel on Scryfall's own page, see
+    // overlay-scryfall-filter.js — the "Filtro padrão" button there needs to
+    // pick up a popup-side edit without a reload, same as it already does
+    // for an edit made locally through that same gear panel).
+    // chrome.storage.onChanged isn't a working option for this: confirmed
+    // empirically that a change written here never reaches a content
+    // script's onChanged listener, even though the exact same listener
+    // registered in this service worker's own context fires normally — so
+    // this pushes the change directly to every open tab's content script
+    // instead, the same way handleLoadPendingPrices already pushes its own
+    // progress updates.
+    //
+    // showDebugLogs is always included whenever either value changes, not
+    // just when it's the one that changed — overlay-utils.js's own listener
+    // sets logsEnabled unconditionally off `msg.showDebugLogs` on every
+    // "settingsChanged" message, so a message that omitted it (e.g. one
+    // sent purely for a scryfallDefaultFilter change) would read as
+    // `undefined === true` and silently turn logging off. Reading `updated`
+    // (not `partial`) means this is always the account's real current
+    // value, whether or not this particular save is what changed it.
+    if ("showDebugLogs" in partial || "scryfallDefaultFilter" in partial) {
+      const tabs = await chrome.tabs.query({ url: INJECTED_HOST_PATTERNS });
+      const message = { action: "settingsChanged", showDebugLogs: updated.showDebugLogs };
+      if ("scryfallDefaultFilter" in partial) message.scryfallDefaultFilter = updated.scryfallDefaultFilter;
+      tabs.forEach((tab) => {
+        if (tab.id == null) return;
+        // Rejects harmlessly for a tab with no listener yet (mid-navigation,
+        // content script not injected there for some other reason, etc.).
+        chrome.tabs.sendMessage(tab.id, message).catch(() => {});
+      });
+    }
+
+    // Not a content-script setting -- chrome.contextMenus lives in this
+    // service worker, so re-registering directly here is what makes the
+    // checkbox take effect live instead of needing an extension reload.
+    if ("addCardSearchContextMenu" in partial) {
+      registerSearchCardContextMenu();
+    }
   });
   return settingsWrites;
 }

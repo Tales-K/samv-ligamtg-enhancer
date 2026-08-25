@@ -2,9 +2,12 @@
  * Archidekt price overlay — replaces USD price links with BRL prices from LigaMagic.
  *
  * Flow:
- *   1. Collect all unique card names from the current view.
+ *   1. Collect all unique card names from the current view (text-view rows,
+ *      the card detail modal, and/or the grid view — whichever are present).
  *   2. Ask the background worker for locally cached prices (chrome.storage.local).
- *   3. Replace each USD price link with a coloured BRL price that links to LigaMagic.
+ *   3. Replace each USD price link with a coloured BRL price that links to
+ *      LigaMagic, and add a LigaMagic pill alongside the card detail modal's
+ *      and the grid view's own marketplace price row.
  *   4. Re-run automatically when the SPA re-renders the card list.
  *
  * Depends on: overlay-utils.js (log factory, priceColor, fmtBRL, logPriceMap,
@@ -21,6 +24,59 @@ const log = createLogger("Archidekt");
 const SEL_CARD_BUTTON = '[class*="textViewCard_button"]';
 const SEL_PRICE_LINK = '[class*="textViewCard_shoppingUrl"]';
 const SEL_CARD_ROW = '[class*="textViewCard_card"]';
+
+// Archidekt renders the exact same "Prices" component (the TCGplayer / Card
+// Kingdom / Mana Pool pill row) in two more places besides the text-view row
+// above: the per-card detail modal (opened from a card's "..." menu → "Open
+// details") and the grid/image view ("View as" → Grid). Both share the same
+// prices_container/prices_price markup, so one code path below handles both
+// — the only real difference is which ancestor also holds the card's own
+// name, needed to look its price up in priceMap: the modal's name lives
+// under cardDetailsOverlay_left, the grid card's under imageCard_imageCard.
+const SEL_PRICE_ROW = '[class*="prices_container"]';
+const SEL_PRICE_ROW_CARD_ROOT = '[class*="cardDetailsOverlay_left"], [class*="imageCard_imageCard"]';
+// Archidekt keeps a card's name/text "loading skeleton" mounted in the DOM
+// even after the real card image has finished loading (it's just faded to
+// opacity 0, not removed) — present in both the modal and the grid view, and
+// a more reliable name source there than the rendered image's alt/title
+// text, which bundles in the set code and collector number (e.g. "Xyris,
+// the Writhing Storm (dmc) 175") that would need stripping back off.
+const SEL_CARD_NAMEBOX = '[class*="cardLoader_namebox"]';
+// Marks the pill this file appends to those rows, so a later pass can find
+// its own previous work and reconcile it (see applyDetailAndGridPrices)
+// rather than appending a second one next to it.
+const DETAIL_PILL_CLASS = "lm-ext-detail-price";
+// One card tile in the grid ("View as" → Grid) and the quantity badge drawn
+// on its corner. The grid renders no textViewCard_* markup at all, so the
+// per-card totals below have to read name/quantity from these instead.
+const SEL_GRID_TILE = '[class*="imageCard_imageCard"]';
+const SEL_GRID_QTY = '[class*="cornerQuantity"]';
+
+/**
+ * Every card in `root`, as {name, qty}, regardless of which view is
+ * rendering it — the text view's rows when they're present, the grid's tiles
+ * otherwise. The group and deck totals both need this: written against the
+ * text view alone, they silently summed nothing at all in grid view (no
+ * textViewCard_card exists there), so no total was ever shown.
+ */
+function cardEntriesIn(root) {
+  const rows = [...root.querySelectorAll(SEL_CARD_ROW)];
+  if (rows.length > 0) {
+    return rows.flatMap((row) => {
+      const btn = row.querySelector(SEL_CARD_BUTTON);
+      const name = cardNameOf(btn);
+      if (!name) return [];
+      // Quantity is the first text node of the button, before the name span.
+      return [{ name, qty: parseInt(btn.childNodes[0]?.textContent?.trim()) || 1 }];
+    });
+  }
+
+  return [...root.querySelectorAll(SEL_GRID_TILE)].flatMap((tile) => {
+    const name = cardNameFromNamebox(tile.querySelector(SEL_CARD_NAMEBOX));
+    if (!name) return [];
+    return [{ name, qty: parseInt(tile.querySelector(SEL_GRID_QTY)?.textContent?.trim()) || 1 }];
+  });
+}
 
 // data-attribute set on price elements we have already processed.
 const PROCESSED_ATTR = "data-lm-processed";
@@ -75,10 +131,28 @@ function cardNameOf(btn) {
   return raw ? stripArenaAlchemyPrefix(raw) : null;
 }
 
+/**
+ * Reads a card name straight off its loading-skeleton namebox (see
+ * SEL_CARD_NAMEBOX above) — used for the modal and grid surfaces, which
+ * don't have a textViewCard_button to read a title attribute off of.
+ */
+function cardNameFromNamebox(el) {
+  const raw = el?.textContent?.trim();
+  return raw ? stripArenaAlchemyPrefix(raw) : null;
+}
+
 function extractCardNames() {
   const names = new Set();
   document.querySelectorAll(SEL_CARD_BUTTON).forEach((btn) => {
     const name = cardNameOf(btn);
+    if (name) names.add(name);
+  });
+  // Covers decks whose default/only view is Grid (no text-view buttons ever
+  // render there) and the card detail modal — without this, a price query
+  // never fires for either surface and applyDetailAndGridPrices() below has
+  // nothing to inject.
+  document.querySelectorAll(SEL_CARD_NAMEBOX).forEach((box) => {
+    const name = cardNameFromNamebox(box);
     if (name) names.add(name);
   });
   return [...names];
@@ -151,6 +225,100 @@ function applyPrices(priceMap, openLigaMagicOnClick = true) {
   if (replaced > 0) log(`Replaced ${replaced} price label(s).`);
 }
 
+/**
+ * Builds one LigaMagic price pill, styled to sit alongside Archidekt's own
+ * TCGplayer/Card Kingdom/Mana Pool pills in the prices_container row without
+ * depending on their own (hashed) classes for layout — flex/gap/font are set
+ * inline instead, matched by eye to the row's existing pills.
+ */
+function buildLigaMagicPricePill(name, info, openLigaMagicOnClick) {
+  const el = document.createElement("a");
+  const hasPrice = info?.priceMin != null;
+  const color = priceColor(info?.updatedAt);
+
+  el.textContent = fmtBRL(info?.priceMin, { spaced: true });
+  el.title = hasPrice
+    ? `LigaMagic — atualizado em ${new Date(info.updatedAt).toLocaleDateString("pt-BR")}`
+    : "Sem preço no LigaMagic" + (openLigaMagicOnClick ? " — clique para abrir a página do card" : "");
+  el.style.cssText = [
+    "display: inline-flex",
+    "align-items: center",
+    `color: ${color}`,
+    "font-size: 12px",
+    "font-weight: 700",
+    "text-decoration: none",
+    "white-space: nowrap",
+    openLigaMagicOnClick ? "cursor: pointer" : "cursor: default",
+  ].join("; ");
+
+  if (openLigaMagicOnClick) {
+    el.href = LIGAMAGIC_BASE + encodeURIComponent(name);
+    el.target = "_blank";
+    el.rel = "noopener noreferrer";
+  }
+
+  return el;
+}
+
+// ── Card detail modal & grid view price row ─────────────────────────────────
+/**
+ * Appends a LigaMagic price pill to every prices_container row found so far
+ * unprocessed (see SEL_PRICE_ROW/PROCESSED_ATTR) — the modal's and the grid
+ * view's each render exactly one, alongside Archidekt's own marketplace
+ * pills, so this is additive (appendChild) rather than a replacement like
+ * applyPrices() does for the text view's single USD link.
+ *
+ * @param {Record<string, {priceMin: number|null, updatedAt: string}>} priceMap
+ */
+function applyDetailAndGridPrices(priceMap, openLigaMagicOnClick = true) {
+  let injected = 0;
+  document.querySelectorAll(SEL_PRICE_ROW).forEach((row) => {
+    const root = row.closest(SEL_PRICE_ROW_CARD_ROOT);
+    if (!root) {
+      logNotShown(
+        "Archidekt",
+        "Preço LigaMagic (modal/grade)",
+        "container de preços fora de um card reconhecido (cardDetailsOverlay_left / imageCard_imageCard)",
+      );
+      return;
+    }
+
+    const name = cardNameFromNamebox(root.querySelector(SEL_CARD_NAMEBOX));
+    if (!name) {
+      logNotShown("Archidekt", "Preço LigaMagic (modal/grade)", "nome do card não encontrado (cardLoader_namebox ausente)");
+      return;
+    }
+
+    // Reconciled against the pill already there (if any) rather than gated
+    // on a one-shot "already processed" marker, because this path is
+    // additive: an appendChild that ran a second time on the same row would
+    // leave two pills side by side rather than harmlessly redoing its work
+    // like the text view's replace-in-place does. That second pass is a
+    // normal occurrence, not an edge case — the pending-prices backfill
+    // deliberately re-runs everything once it finishes so the newly cached
+    // prices get drawn.
+    //
+    // Keying on the card name plus the price itself also covers a row whose
+    // contents Archidekt swapped underneath us (the detail modal reuses one
+    // container as the user moves between cards) and a row whose price
+    // simply changed since the last pass — both need the pill replaced,
+    // and neither is distinguishable from "nothing to do" by presence alone.
+    const info = priceMap[name] ?? null;
+    const signature = `${name}|${info?.priceMin ?? ""}|${info?.updatedAt ?? ""}|${openLigaMagicOnClick}`;
+    const existing = row.querySelector(`.${DETAIL_PILL_CLASS}`);
+    if (existing?.dataset.lmSignature === signature) return;
+    existing?.remove();
+
+    const pill = buildLigaMagicPricePill(name, info, openLigaMagicOnClick);
+    pill.classList.add(DETAIL_PILL_CLASS);
+    pill.dataset.lmSignature = signature;
+    row.appendChild(pill);
+    injected++;
+  });
+
+  if (injected > 0) log(`Injected LigaMagic price into ${injected} detail/grid price row(s).`);
+}
+
 // ── Group total update ─────────────────────────────────────────────────────────
 /**
  * For each card group (stack), sums qty × priceMin for every card found in
@@ -169,17 +337,7 @@ function updateGroupTotals(priceMap) {
     let total = 0;
     let hasAnyPrice = false;
 
-    stack.querySelectorAll(SEL_CARD_ROW).forEach((row) => {
-      const btn = row.querySelector(SEL_CARD_BUTTON);
-      if (!btn) return;
-
-      const name = cardNameOf(btn);
-      if (!name) return;
-
-      // Quantity is the first text node of the button (before the card name span).
-      const qtyText = btn.childNodes[0]?.textContent?.trim();
-      const qty = parseInt(qtyText) || 1;
-
+    cardEntriesIn(stack).forEach(({ name, qty }) => {
       const info = priceMap[name];
       if (info?.priceMin != null) {
         total += qty * info.priceMin;
@@ -242,13 +400,7 @@ function updateDeckTotal(priceMap) {
     const titleEl = stack.querySelector(SEL_STACK_TITLE);
     if (titleEl?.textContent?.trim() === "Maybeboard") return;
 
-    stack.querySelectorAll(SEL_CARD_BUTTON).forEach((btn) => {
-      const name = cardNameOf(btn);
-      if (!name) return;
-
-      const qtyText = btn.childNodes[0]?.textContent?.trim();
-      const qty = parseInt(qtyText) || 1;
-
+    cardEntriesIn(stack).forEach(({ name, qty }) => {
       const info = priceMap[name];
       if (info?.priceMin != null) {
         total += qty * info.priceMin;
@@ -296,6 +448,7 @@ function run() {
       applyPrices(priceMap, openLigaMagicOnClick);
       updateGroupTotals(priceMap);
       updateDeckTotal(priceMap);
+      applyDetailAndGridPrices(priceMap, openLigaMagicOnClick);
 
       const missingNames = names.filter((n) => !priceMap[n]);
       renderPendingPricesButton({
@@ -305,6 +458,9 @@ function run() {
           // of whether a price was found, so a plain re-run would skip them
           // and never pick up the price the backfill just cached — clear
           // the marker on exactly the links whose card was missing.
+          // applyDetailAndGridPrices() needs no equivalent: it reconciles
+          // each row against the pill already there, so re-running is enough
+          // on its own to redraw one whose price just arrived.
           document.querySelectorAll(SEL_PRICE_LINK).forEach((linkEl) => {
             const row = linkEl.closest(SEL_CARD_ROW);
             const name = cardNameOf(row?.querySelector(SEL_CARD_BUTTON));
@@ -335,4 +491,10 @@ function run() {
 // Archidekt is a React SPA. Card rows are added/removed as the user switches
 // deck views. observeAndRerun debounces mutations so a burst of DOM changes
 // triggers one run, and does the initial run for content already rendered.
-observeAndRerun((mutations) => hasAddedNodeMatching(mutations, SEL_CARD_ROW), run);
+// SEL_CARD_NAMEBOX also triggers a re-run: switching to Grid view or opening
+// the card detail modal never adds a SEL_CARD_ROW (that's text-view-only),
+// but both always mount a fresh cardLoader_namebox.
+observeAndRerun(
+  (mutations) => hasAddedNodeMatching(mutations, SEL_CARD_ROW) || hasAddedNodeMatching(mutations, SEL_CARD_NAMEBOX),
+  run,
+);

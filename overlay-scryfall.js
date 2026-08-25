@@ -316,23 +316,30 @@ function injectBuyButton(name) {
 }
 
 /**
- * Waits briefly for Scryfall's own "Filtro padrão" button — injected by
- * overlay-scryfall-filter.js off its own independent getSettings round trip
- * — so the pending-prices button can anchor next to it in the header row
- * instead of racing it into the floating fallback. Without this wait, run()
- * below (scheduled first per manifest order, same 600ms debounce) fires
- * reliably *before* that button exists on a fresh load, and the wrapper's
- * mount point is decided once and never moved afterward. Falls back to
- * floating (mountAfter: null) if the button never shows up (feature
- * disabled, or no default filter configured), same as before this existed.
+ * Waits briefly for Scryfall's own filter-controls wrapper — injected by
+ * overlay-scryfall-filter.js off its own independent getSettings round trip,
+ * and holding both the "Filtro padrão" button and the gear button that
+ * configures it — so the pending-prices button can anchor right after it in
+ * the header row instead of racing it into the floating fallback. Without
+ * this wait, run() below (scheduled first per manifest order, same 600ms
+ * debounce) fires reliably *before* that wrapper exists on a fresh load, and
+ * the wrapper's mount point is decided once and never moved afterward.
+ *
+ * Anchoring to the wrapper as a whole (rather than to either button inside
+ * it) keeps the header row's order deterministic — Filtro padrão →
+ * engrenagem → Carregar preços pendentes — and keeps this independent of
+ * how overlay-scryfall-filter.js lays that pair out internally.
+ *
+ * Falls back to floating (mountAfter: null) if the wrapper never shows up
+ * (feature disabled), same as before this existed.
  */
-function waitForFilterButton(callback, deadline = Date.now() + 2000) {
-  const existing = typeof FILTER_BUTTON_ID !== "undefined" ? document.getElementById(FILTER_BUTTON_ID) : null;
+function waitForFilterControls(callback, deadline = Date.now() + 2000) {
+  const existing = typeof FILTER_WRAPPER_ID !== "undefined" ? document.getElementById(FILTER_WRAPPER_ID) : null;
   if (existing || Date.now() >= deadline) {
     callback(existing);
     return;
   }
-  setTimeout(() => waitForFilterButton(callback, deadline), 100);
+  setTimeout(() => waitForFilterControls(callback, deadline), 100);
 }
 
 // ── Main run ──────────────────────────────────────────────────────────────────
@@ -371,7 +378,7 @@ function run() {
       applyPrices(priceMap, openLigaMagicOnClick);
 
       const missingNames = names.filter((n) => !priceMap[n]);
-      waitForFilterButton((filterBtn) => {
+      waitForFilterControls((filterControls) => {
         renderPendingPricesButton({
           missingNames,
           onDone: () => {
@@ -387,9 +394,10 @@ function run() {
           },
           log,
           siteName: "Scryfall",
-          // Same 8px the filter button uses for its own left margin — reads
-          // as one more control in that row rather than a mismatched extra.
-          mountAfter: filterBtn,
+          mountAfter: filterControls,
+          // Same 8px the filter controls wrapper uses for its own left
+          // margin — reads as one more control in that row rather than a
+          // mismatched extra.
           toolbarGap: "8px",
           // Filtro padrão uses 5px vertical padding (26px tall); matching
           // that here instead of this button's own default 8px keeps both

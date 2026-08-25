@@ -228,6 +228,49 @@
       padding: 0 0 4px;
     }
 
+    /* ── LigaMagic card subsections (one card per "page", set of pages) ─── */
+    .lm-subgrid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px 16px;
+      margin-top: 4px;
+    }
+
+    .lm-subsection-title {
+      font-size: 10px;
+      font-weight: 600;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+
+    .lm-subsection-checks {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0 16px;
+    }
+
+    .lm-subsection-checks .settings-row-select {
+      grid-column: 1 / -1;
+    }
+
+    /* The one subsection with enough content to earn the full card width
+       (its own checkboxes plus the nested default-filter values below) --
+       spans both lm-subgrid columns and gets a divider above it, the same
+       way .settings-group + .settings-group already separates stacked
+       groups within a single card. */
+    .lm-subsection-full {
+      grid-column: 1 / -1;
+      margin-top: 6px;
+      padding-top: 12px;
+      border-top: 1px solid #1f1f3a;
+    }
+
+    .lm-subsection-full .lm-subsection-checks {
+      margin-bottom: 12px;
+    }
+
     .settings-group {
       margin-top: 8px;
     }
@@ -609,32 +652,238 @@
   <div class="settings-section">
     <div class="settings-grid">
 
+      <div class="settings-card settings-card-full">
+        <div class="section-title">LigaMagic (ligamagic.com.br)</div>
+
+        <div class="lm-subgrid">
+
+          <div class="lm-subsection">
+            <div class="lm-subsection-title">Geral</div>
+            <div class="lm-subsection-checks">
+              <div class="settings-row" title="Adiciona a aba 'Meus Decks' ao menu principal do LigaMagic, visível em qualquer página do site.">
+                <input type="checkbox" id="addMeusDecksTab" />
+                <label for="addMeusDecksTab">Adicionar aba "Meus Decks"</label>
+              </div>
+              <div class="settings-row" title="Adiciona a aba 'Meus Pedidos' ao lado de 'Meus Decks', com atalho para o histórico de compras no marketplace.">
+                <input type="checkbox" id="addMeusPedidosTab" />
+                <label for="addMeusPedidosTab">Adicionar aba "Meus Pedidos"</label>
+              </div>
+              <div class="settings-row" title="Remove a aba 'Leilões' do menu principal do LigaMagic, em qualquer página do site.">
+                <input type="checkbox" id="removeLeiloesTab" />
+                <label for="removeLeiloesTab">Remover aba "Leilões"</label>
+              </div>
+              <div class="settings-row" title="Remove a aba 'Fórum' do menu principal do LigaMagic, em qualquer página do site.">
+                <input type="checkbox" id="removeForumTab" />
+                <label for="removeForumTab">Remover aba "Fórum"</label>
+              </div>
+            </div>
+          </div>
+
+          <div class="lm-subsection">
+            <div class="lm-subsection-title">Página de deck</div>
+            <div class="lm-subsection-checks">
+              <div class="settings-row" title="Adiciona a aba 'Preço' na página de um deck no LigaMagic, listando os cards ordenados por valor sem misturar mainboard, sideboard e maybeboard.">
+                <input type="checkbox" id="addPriceView" />
+                <label for="addPriceView">Adicionar visualização de deck por preço</label>
+              </div>
+              <div class="settings-row" title="Na aba nativa 'Grid' da página de um deck no LigaMagic, mostra os preços Mín/Méd/Máx embaixo de cada carta.">
+                <input type="checkbox" id="addDeckGridPrices" />
+                <label for="addDeckGridPrices">Mostrar preços na visualização em grid</label>
+              </div>
+              <div class="settings-row" title="Na página de um deck no LigaMagic, adiciona o botão 'Copiar Deck', que copia a lista de cards para a área de transferência.">
+                <input type="checkbox" id="replaceGerarImagemWithCopiarDeck" />
+                <label for="replaceGerarImagemWithCopiarDeck">Adicionar botão Copiar Deck</label>
+              </div>
+              <div class="settings-row" title="Na página de um deck no LigaMagic, remove o botão nativo 'Gerar Imagem'. Independente da opção acima — desative esta para manter os dois botões visíveis ao mesmo tempo.">
+                <input type="checkbox" id="removeGerarImagemButton" />
+                <label for="removeGerarImagemButton">Remover botão Gerar Imagem</label>
+              </div>
+              <div class="settings-row settings-row-select" title="Define qual aba (Padrão, Cor, Preço, etc.) abre automaticamente ao visitar a página de um deck no LigaMagic.">
+                <label for="defaultDeckView">Visualização padrão</label>
+                <!-- Same order the tabs appear in on the deck page, where the
+                     injected "Preço" tab sits right after "Padrão". -->
+                <select id="defaultDeckView">
+                  <option value="">Padrão do LigaMagic</option>
+                  <option value="1">Padrão</option>
+                  <option value="price">Preço</option>
+                  <option value="2">Cor</option>
+                  <option value="3">Custo</option>
+                  <option value="4">Raridade</option>
+                  <option value="5">Visual</option>
+                  <option value="8">Grid</option>
+                  <option value="6">CMC</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div class="lm-subsection">
+            <div class="lm-subsection-title">Página da carta</div>
+            <div class="lm-subsection-checks">
+              <div class="settings-row" title="Adiciona botões 'Scryfall' e 'EDHREC': acima da imagem que aparece ao passar o mouse sobre o nome de uma carta (deck, listagem de decks, etc.) e ao lado do botão de favoritar na página individual da carta.">
+                <input type="checkbox" id="addCardHoverLinks" />
+                <label for="addCardHoverLinks">Links Scryfall/EDHREC (prévia hover + página da carta)</label>
+              </div>
+            </div>
+          </div>
+
+          <div class="lm-subsection">
+            <div class="lm-subsection-title">Marketplace</div>
+            <div class="lm-subsection-checks">
+              <div class="settings-row" title="Adiciona o botão 'Copiar Lista' na lista de compras do carrinho, pra copiar os cards no formato detalhado do LigaMagic (com edição, qualidade, idioma e extras de cada carta).">
+                <input type="checkbox" id="addCarrinhoCopyButton" />
+                <label for="addCarrinhoCopyButton">Botão "Copiar Lista" no carrinho</label>
+              </div>
+            </div>
+          </div>
+
+          <div class="lm-subsection lm-subsection-full">
+            <div class="lm-subsection-title">Compra por lista</div>
+            <div class="lm-subsection-checks">
+              <div class="settings-row" title="Ao abrir a página 'Compra por Lista', reaplica os filtros exatamente como você os deixou da última vez, em vez dos valores padrão configurados abaixo.">
+                <input type="checkbox" id="rememberListaFilters" />
+                <label for="rememberListaFilters">Usar últimos valores selecionados</label>
+              </div>
+              <div class="settings-row" title="Adiciona o botão 'Carregar filtro padrão' na página 'Compra por Lista', que aplica os valores configurados abaixo quando você quiser.">
+                <input type="checkbox" id="addLoadDefaultsButton" />
+                <label for="addLoadDefaultsButton">Botão "Carregar filtro padrão"</label>
+              </div>
+              <div class="settings-row" title="Adiciona um campo pra colar a URL de uma loja na página 'Compra por Lista', pra incluir lojas específicas na busca sem mexer nos seus favoritos reais.">
+                <input type="checkbox" id="enableCustomStoreSearch" />
+                <label for="enableCustomStoreSearch">Busca em lojas customizadas</label>
+              </div>
+              <div class="settings-row" title="Adiciona o botão 'Copiar Lista de Compras' na tela de resultados da 'Compra por Lista', pra copiar os cards ainda na lista (por loja) em formato de lista de Magic.">
+                <input type="checkbox" id="addCopyListaButton" />
+                <label for="addCopyListaButton">Botão "Copiar Lista de Compras"</label>
+              </div>
+              <div class="settings-row" title="Adiciona o botão 'Análise de Economia' na tela de resultados da 'Compra por Lista', que estima quanto você economizaria deixando de comprar cada carta cara (considerando o frete das lojas envolvidas).">
+                <input type="checkbox" id="addAnaliseEconomia" />
+                <label for="addAnaliseEconomia">Botão "Análise de Economia"</label>
+              </div>
+            </div>
+
+            <div id="lcFiltersCard">
+              <div class="lm-subsection-title" style="margin-top: 2px;">Valores padrão dos filtros</div>
+              <div class="lc-grid">
+                <div class="lc-field">
+                  <div class="lc-field-label">Idiomas</div>
+                  <select id="lcIdiomaMode">
+                    <option value="">Não alterar</option>
+                    <option value="todos">Todos</option>
+                    <option value="escolher">Escolher idiomas</option>
+                  </select>
+                  <div class="lc-checkbox-grid" id="lcIdiomasList" style="display:none;">
+                    <label class="lc-chk"><input type="checkbox" class="lc-idioma-chk" data-value="1" /> Alemão</label>
+                    <label class="lc-chk"><input type="checkbox" class="lc-idioma-chk" data-value="2" /> Inglês</label>
+                    <label class="lc-chk"><input type="checkbox" class="lc-idioma-chk" data-value="3" /> Espanhol</label>
+                    <label class="lc-chk"><input type="checkbox" class="lc-idioma-chk" data-value="4" /> Francês</label>
+                    <label class="lc-chk"><input type="checkbox" class="lc-idioma-chk" data-value="5" /> Italiano</label>
+                    <label class="lc-chk"><input type="checkbox" class="lc-idioma-chk" data-value="6" /> Japonês</label>
+                    <label class="lc-chk"><input type="checkbox" class="lc-idioma-chk" data-value="7" /> Coreano</label>
+                    <label class="lc-chk"><input type="checkbox" class="lc-idioma-chk" data-value="8" /> Português</label>
+                    <label class="lc-chk"><input type="checkbox" class="lc-idioma-chk" data-value="9" /> Russo</label>
+                    <label class="lc-chk"><input type="checkbox" class="lc-idioma-chk" data-value="10" /> Chinês Tradicional</label>
+                    <label class="lc-chk"><input type="checkbox" class="lc-idioma-chk" data-value="11" /> Português/Inglês</label>
+                    <label class="lc-chk"><input type="checkbox" class="lc-idioma-chk" data-value="12" /> Chinês Simplificado</label>
+                    <label class="lc-chk"><input type="checkbox" class="lc-idioma-chk" data-value="16" /> Phyrexiano</label>
+                  </div>
+                </div>
+
+                <div class="lc-field">
+                  <div class="lc-field-label">Extras</div>
+                  <select id="lcExtrasMode">
+                    <option value="">Não alterar</option>
+                    <option value="pode">Pode ter extras</option>
+                    <option value="sem">Sem extras</option>
+                    <option value="definir">Definir extras</option>
+                  </select>
+                  <div class="lc-checkbox-grid" id="lcExtrasList" style="display:none;">
+                    <label class="lc-chk"><input type="checkbox" class="lc-extra-chk" data-value="0" /> Sem Extras</label>
+                    <label class="lc-chk"><input type="checkbox" class="lc-extra-chk" data-value="2" /> Foil</label>
+                    <label class="lc-chk"><input type="checkbox" class="lc-extra-chk" data-value="3" /> Promo</label>
+                    <label class="lc-chk"><input type="checkbox" class="lc-extra-chk" data-value="5" /> Pre Release</label>
+                    <label class="lc-chk"><input type="checkbox" class="lc-extra-chk" data-value="7" /> FNM</label>
+                    <label class="lc-chk"><input type="checkbox" class="lc-extra-chk" data-value="11" /> DCI</label>
+                    <label class="lc-chk"><input type="checkbox" class="lc-extra-chk" data-value="13" /> Textless</label>
+                    <label class="lc-chk"><input type="checkbox" class="lc-extra-chk" data-value="17" /> Assinada</label>
+                    <label class="lc-chk"><input type="checkbox" class="lc-extra-chk" data-value="19" /> Buy A Box</label>
+                    <label class="lc-chk"><input type="checkbox" class="lc-extra-chk" data-value="23" /> Oversize</label>
+                    <label class="lc-chk"><input type="checkbox" class="lc-extra-chk" data-value="29" /> Alterada</label>
+                    <label class="lc-chk"><input type="checkbox" class="lc-extra-chk" data-value="31" /> Foil Especial/Etched</label>
+                    <label class="lc-chk"><input type="checkbox" class="lc-extra-chk" data-value="37" /> Misprint</label>
+                    <label class="lc-chk"><input type="checkbox" class="lc-extra-chk" data-value="41" /> Miscut</label>
+                  </div>
+                </div>
+
+                <div class="lc-field">
+                  <div class="lc-field-label">Qualidade</div>
+                  <select id="lcQualidade">
+                    <option value="">Não alterar</option>
+                    <option value="1">(M) Nova</option>
+                    <option value="2">(NM) Praticamente Nova ou superior</option>
+                    <option value="3">(SP) Usada Levemente ou superior</option>
+                    <option value="4">(MP) Usada Moderadamente ou superior</option>
+                    <option value="5">(HP) Muito Usada ou superior</option>
+                    <option value="6">(D) Danificada ou superior</option>
+                  </select>
+                </div>
+
+                <div class="lc-field">
+                  <div class="lc-field-label">Disponibilidade</div>
+                  <div class="settings-row">
+                    <input type="checkbox" id="lcIgnorarSemEstoque" />
+                    <label for="lcIgnorarSemEstoque">Ignorar cards Sem Estoque</label>
+                  </div>
+                  <div class="settings-row">
+                    <input type="checkbox" id="lcIgnorarPreOrder" />
+                    <label for="lcIgnorarPreOrder">Ignorar cards em Pre Order</label>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
       <div class="settings-card">
-        <div class="section-title">Overlays por site</div>
+        <div class="section-title">Archidekt</div>
         <div class="settings-group">
           <div class="settings-row" title="Mostra o preço em reais ao lado de cada carta na página de um deck no Archidekt.">
             <input type="checkbox" id="overlayArchidekt" />
-            <label for="overlayArchidekt">Overlay Archidekt</label>
+            <label for="overlayArchidekt">Overlay de preço</label>
           </div>
+          <div class="settings-row" title="Quando ativado, clicar no preço em reais (Archidekt, Moxfield ou Scryfall) abre a página do card no LigaMagic em uma nova aba. Aplica-se aos três sites juntos.">
+            <input type="checkbox" id="openLigaMagicOnClick" />
+            <label for="openLigaMagicOnClick">Abrir LigaMagic ao clicar no preço (Archidekt/Moxfield/Scryfall)</label>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-card">
+        <div class="section-title">Moxfield</div>
+        <div class="settings-group">
           <div class="settings-row" title="Mostra o preço em reais ao lado de cada carta na página de um deck no Moxfield.">
             <input type="checkbox" id="overlayMoxfield" />
-            <label for="overlayMoxfield">Overlay Moxfield</label>
+            <label for="overlayMoxfield">Overlay de preço</label>
           </div>
+        </div>
+      </div>
+
+      <div class="settings-card">
+        <div class="section-title">Scryfall</div>
+        <div class="settings-group">
           <div class="settings-row" title="Mostra o preço em reais na tabela de impressões de uma carta no Scryfall.">
             <input type="checkbox" id="overlayScryfall" />
-            <label for="overlayScryfall">Overlay Scryfall</label>
-          </div>
-          <div class="settings-row" title="Quando ativado, clicar no preço em reais (Archidekt, Moxfield ou Scryfall) abre a página do card no LigaMagic em uma nova aba.">
-            <input type="checkbox" id="openLigaMagicOnClick" />
-            <label for="openLigaMagicOnClick">Abrir LigaMagic ao clicar no preço</label>
+            <label for="overlayScryfall">Overlay de preço</label>
           </div>
           <div class="settings-row" title="Adiciona um botão 'Carregar Tags' na caixa de impressões de uma carta no Scryfall, que busca as tags do Scryfall Tagger (só as de carta, não as de arte) e mostra numa tabela.">
             <input type="checkbox" id="addScryfallTagsButton" />
-            <label for="addScryfallTagsButton">Botão "Carregar Tags" no Scryfall</label>
+            <label for="addScryfallTagsButton">Botão "Carregar Tags"</label>
           </div>
           <div class="settings-row" title="Adiciona um botão ao lado da busca do Scryfall que acrescenta o filtro padrão abaixo ao que já estiver no campo.">
             <input type="checkbox" id="addScryfallFilterButton" />
-            <label for="addScryfallFilterButton">Botão de filtro padrão no Scryfall</label>
+            <label for="addScryfallFilterButton">Botão de filtro padrão</label>
           </div>
           <div class="settings-row settings-row-select" title="Filtro acrescentado à busca do Scryfall ao clicar no botão. Pode ter vários termos separados por espaço.">
             <label for="scryfallDefaultFilter">Filtro padrão</label>
@@ -644,178 +893,11 @@
       </div>
 
       <div class="settings-card">
-        <div class="section-title">Menu Principal</div>
+        <div class="section-title">Qualquer site</div>
         <div class="settings-group">
-          <div class="settings-row" title="Adiciona a aba 'Meus Decks' ao menu principal do LigaMagic, visível em qualquer página do site.">
-            <input type="checkbox" id="addMeusDecksTab" />
-            <label for="addMeusDecksTab">Adicionar aba "Meus Decks"</label>
-          </div>
-          <div class="settings-row" title="Adiciona a aba 'Meus Pedidos' ao lado de 'Meus Decks', com atalho para o histórico de compras no marketplace.">
-            <input type="checkbox" id="addMeusPedidosTab" />
-            <label for="addMeusPedidosTab">Adicionar aba "Meus Pedidos"</label>
-          </div>
-          <div class="settings-row" title="Remove a aba 'Leilões' do menu principal do LigaMagic, em qualquer página do site.">
-            <input type="checkbox" id="removeLeiloesTab" />
-            <label for="removeLeiloesTab">Remover aba "Leilões"</label>
-          </div>
-          <div class="settings-row" title="Remove a aba 'Fórum' do menu principal do LigaMagic, em qualquer página do site.">
-            <input type="checkbox" id="removeForumTab" />
-            <label for="removeForumTab">Remover aba "Fórum"</label>
-          </div>
-        </div>
-      </div>
-
-      <div class="settings-card">
-        <div class="section-title">Deck (LigaMagic)</div>
-        <div class="settings-group">
-          <div class="settings-row" title="Adiciona a aba 'Preço' na página de um deck no LigaMagic, listando os cards ordenados por valor sem misturar mainboard, sideboard e maybeboard.">
-            <input type="checkbox" id="addPriceView" />
-            <label for="addPriceView">Adicionar visualização de deck por preço</label>
-          </div>
-          <div class="settings-row" title="Na página de um deck no LigaMagic, adiciona o botão 'Copiar Deck', que copia a lista de cards para a área de transferência.">
-            <input type="checkbox" id="replaceGerarImagemWithCopiarDeck" />
-            <label for="replaceGerarImagemWithCopiarDeck">Adicionar botão Copiar Deck</label>
-          </div>
-          <div class="settings-row" title="Na página de um deck no LigaMagic, remove o botão nativo 'Gerar Imagem'. Independente da opção acima — desative esta para manter os dois botões visíveis ao mesmo tempo.">
-            <input type="checkbox" id="removeGerarImagemButton" />
-            <label for="removeGerarImagemButton">Remover botão Gerar Imagem</label>
-          </div>
-          <div class="settings-row" title="Adiciona botões 'Scryfall' e 'EDHREC': acima da imagem que aparece ao passar o mouse sobre o nome de uma carta (deck, listagem de decks, etc.) e ao lado do botão de favoritar na página individual da carta.">
-            <input type="checkbox" id="addCardHoverLinks" />
-            <label for="addCardHoverLinks">Links Scryfall/EDHREC (prévia hover + página da carta)</label>
-          </div>
-          <div class="settings-row settings-row-select" title="Define qual aba (Padrão, Cor, Preço, etc.) abre automaticamente ao visitar a página de um deck no LigaMagic.">
-            <label for="defaultDeckView">Visualização padrão</label>
-            <!-- Same order the tabs appear in on the deck page, where the
-                 injected "Preço" tab sits right after "Padrão". -->
-            <select id="defaultDeckView">
-              <option value="">Padrão do LigaMagic</option>
-              <option value="1">Padrão</option>
-              <option value="price">Preço</option>
-              <option value="2">Cor</option>
-              <option value="3">Custo</option>
-              <option value="4">Raridade</option>
-              <option value="5">Visual</option>
-              <option value="8">Grid</option>
-              <option value="6">CMC</option>
-            </select>
-          </div>
-        </div>
-      </div>
-
-      <div class="settings-card">
-        <div class="section-title">Compra por Lista</div>
-        <div class="settings-group">
-          <div class="settings-row" title="Ao abrir a página 'Compra por Lista', reaplica os filtros exatamente como você os deixou da última vez, em vez dos valores padrão configurados abaixo.">
-            <input type="checkbox" id="rememberListaFilters" />
-            <label for="rememberListaFilters">Usar últimos valores selecionados</label>
-          </div>
-
-          <div class="settings-row" title="Adiciona o botão 'Carregar filtro padrão' na página 'Compra por Lista', que aplica os valores configurados abaixo quando você quiser.">
-            <input type="checkbox" id="addLoadDefaultsButton" />
-            <label for="addLoadDefaultsButton">Botão "Carregar filtro padrão"</label>
-          </div>
-
-          <div class="settings-row" title="Adiciona um campo pra colar a URL de uma loja na página 'Compra por Lista', pra incluir lojas específicas na busca sem mexer nos seus favoritos reais.">
-            <input type="checkbox" id="enableCustomStoreSearch" />
-            <label for="enableCustomStoreSearch">Busca em lojas customizadas</label>
-          </div>
-
-          <div class="settings-row" title="Adiciona o botão 'Copiar Lista de Compras' na tela de resultados da 'Compra por Lista', pra copiar os cards ainda na lista (por loja) em formato de lista de Magic.">
-            <input type="checkbox" id="addCopyListaButton" />
-            <label for="addCopyListaButton">Botão "Copiar Lista de Compras"</label>
-          </div>
-
-          <div class="settings-row" title="Adiciona o botão 'Análise de Economia' na tela de resultados da 'Compra por Lista', que estima quanto você economizaria deixando de comprar cada carta cara (considerando o frete das lojas envolvidas).">
-            <input type="checkbox" id="addAnaliseEconomia" />
-            <label for="addAnaliseEconomia">Botão "Análise de Economia"</label>
-          </div>
-
-          <div class="settings-row" title="Adiciona o botão 'Copiar Lista' na lista de compras do carrinho, pra copiar os cards no formato detalhado do LigaMagic (com edição, qualidade, idioma e extras de cada carta).">
-            <input type="checkbox" id="addCarrinhoCopyButton" />
-            <label for="addCarrinhoCopyButton">Botão "Copiar Lista" no carrinho</label>
-          </div>
-        </div>
-      </div>
-
-      <div class="settings-card settings-card-full" id="lcFiltersCard">
-        <div class="section-title">Filtro padrão da Compra por Lista</div>
-        <div class="settings-group">
-          <div class="lc-grid">
-            <div class="lc-field">
-              <div class="lc-field-label">Idiomas</div>
-              <select id="lcIdiomaMode">
-                <option value="">Não alterar</option>
-                <option value="todos">Todos</option>
-                <option value="escolher">Escolher idiomas</option>
-              </select>
-              <div class="lc-checkbox-grid" id="lcIdiomasList" style="display:none;">
-                <label class="lc-chk"><input type="checkbox" class="lc-idioma-chk" data-value="1" /> Alemão</label>
-                <label class="lc-chk"><input type="checkbox" class="lc-idioma-chk" data-value="2" /> Inglês</label>
-                <label class="lc-chk"><input type="checkbox" class="lc-idioma-chk" data-value="3" /> Espanhol</label>
-                <label class="lc-chk"><input type="checkbox" class="lc-idioma-chk" data-value="4" /> Francês</label>
-                <label class="lc-chk"><input type="checkbox" class="lc-idioma-chk" data-value="5" /> Italiano</label>
-                <label class="lc-chk"><input type="checkbox" class="lc-idioma-chk" data-value="6" /> Japonês</label>
-                <label class="lc-chk"><input type="checkbox" class="lc-idioma-chk" data-value="7" /> Coreano</label>
-                <label class="lc-chk"><input type="checkbox" class="lc-idioma-chk" data-value="8" /> Português</label>
-                <label class="lc-chk"><input type="checkbox" class="lc-idioma-chk" data-value="9" /> Russo</label>
-                <label class="lc-chk"><input type="checkbox" class="lc-idioma-chk" data-value="10" /> Chinês Tradicional</label>
-                <label class="lc-chk"><input type="checkbox" class="lc-idioma-chk" data-value="11" /> Português/Inglês</label>
-                <label class="lc-chk"><input type="checkbox" class="lc-idioma-chk" data-value="12" /> Chinês Simplificado</label>
-                <label class="lc-chk"><input type="checkbox" class="lc-idioma-chk" data-value="16" /> Phyrexiano</label>
-              </div>
-            </div>
-
-            <div class="lc-field">
-              <div class="lc-field-label">Extras</div>
-              <select id="lcExtrasMode">
-                <option value="">Não alterar</option>
-                <option value="pode">Pode ter extras</option>
-                <option value="sem">Sem extras</option>
-                <option value="definir">Definir extras</option>
-              </select>
-              <div class="lc-checkbox-grid" id="lcExtrasList" style="display:none;">
-                <label class="lc-chk"><input type="checkbox" class="lc-extra-chk" data-value="0" /> Sem Extras</label>
-                <label class="lc-chk"><input type="checkbox" class="lc-extra-chk" data-value="2" /> Foil</label>
-                <label class="lc-chk"><input type="checkbox" class="lc-extra-chk" data-value="3" /> Promo</label>
-                <label class="lc-chk"><input type="checkbox" class="lc-extra-chk" data-value="5" /> Pre Release</label>
-                <label class="lc-chk"><input type="checkbox" class="lc-extra-chk" data-value="7" /> FNM</label>
-                <label class="lc-chk"><input type="checkbox" class="lc-extra-chk" data-value="11" /> DCI</label>
-                <label class="lc-chk"><input type="checkbox" class="lc-extra-chk" data-value="13" /> Textless</label>
-                <label class="lc-chk"><input type="checkbox" class="lc-extra-chk" data-value="17" /> Assinada</label>
-                <label class="lc-chk"><input type="checkbox" class="lc-extra-chk" data-value="19" /> Buy A Box</label>
-                <label class="lc-chk"><input type="checkbox" class="lc-extra-chk" data-value="23" /> Oversize</label>
-                <label class="lc-chk"><input type="checkbox" class="lc-extra-chk" data-value="29" /> Alterada</label>
-                <label class="lc-chk"><input type="checkbox" class="lc-extra-chk" data-value="31" /> Foil Especial/Etched</label>
-                <label class="lc-chk"><input type="checkbox" class="lc-extra-chk" data-value="37" /> Misprint</label>
-                <label class="lc-chk"><input type="checkbox" class="lc-extra-chk" data-value="41" /> Miscut</label>
-              </div>
-            </div>
-
-            <div class="lc-field">
-              <div class="lc-field-label">Qualidade</div>
-              <select id="lcQualidade">
-                <option value="">Não alterar</option>
-                <option value="1">(M) Nova</option>
-                <option value="2">(NM) Praticamente Nova ou superior</option>
-                <option value="3">(SP) Usada Levemente ou superior</option>
-                <option value="4">(MP) Usada Moderadamente ou superior</option>
-                <option value="5">(HP) Muito Usada ou superior</option>
-                <option value="6">(D) Danificada ou superior</option>
-              </select>
-            </div>
-
-            <div class="lc-field">
-              <div class="lc-field-label">Disponibilidade</div>
-              <div class="settings-row">
-                <input type="checkbox" id="lcIgnorarSemEstoque" />
-                <label for="lcIgnorarSemEstoque">Ignorar cards Sem Estoque</label>
-              </div>
-              <div class="settings-row">
-                <input type="checkbox" id="lcIgnorarPreOrder" />
-                <label for="lcIgnorarPreOrder">Ignorar cards em Pre Order</label>
-              </div>
-            </div>
+          <div class="settings-row" title="Ao selecionar um texto em qualquer site e clicar com o botão direito, mostra a opção 'Pesquisar carta', com atalhos para LigaMagic, Scryfall e EDHREC.">
+            <input type="checkbox" id="addCardSearchContextMenu" />
+            <label for="addCardSearchContextMenu">Menu de contexto "Pesquisar carta"</label>
           </div>
         </div>
       </div>

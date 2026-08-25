@@ -17,12 +17,27 @@
 // surfaced only through a hidden checkbox in the popup footer (click the
 // version number) — so a user can turn logging on in their own browser to
 // help diagnose something without needing a dev build, but it stays quiet
-// for everyone else. Fetched once per page load; a mid-session toggle in the
-// popup takes effect on the next page load/reload, same as every other
-// setting these overlays read.
+// for everyone else. Read once at injection time, then kept live via a
+// message from the background (see saveSettings in background.js) rather
+// than chrome.storage.onChanged: confirmed empirically that a storage.local
+// write from the background service worker never reaches a content
+// script's own onChanged listener in this setup, even though the exact
+// same listener registered in the service worker's own context fires
+// normally for it. Without this, flipping the checkbox would only take
+// effect on a tab's next reload — which defeats the purpose when you're
+// trying to catch a "why didn't this render" moment live.
 let logsEnabled = false;
 chrome.runtime.sendMessage({ action: "getSettings" }, (settings) => {
   if (!chrome.runtime.lastError) logsEnabled = settings?.showDebugLogs === true;
+});
+// Guarded on the key being present rather than reading it unconditionally:
+// "settingsChanged" also carries other live-updated settings (see
+// saveSettings in background.js), and a message sent for one of those that
+// happened to omit this key would otherwise read as `undefined === true`
+// and silently switch logging off mid-session.
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg.action !== "settingsChanged") return;
+  if ("showDebugLogs" in msg) logsEnabled = msg.showDebugLogs === true;
 });
 
 function createLogger(siteName) {
@@ -176,14 +191,58 @@ const PENDING_PRICES_MAX_LISTED_FAILURES = 5;
 // replaced), which would otherwise wipe out a "loading" flag stored as a
 // dataset attribute on the old, now-detached element and let a fresh render
 // start a second backfill on top of the first. `null` when idle.
-let pendingPricesState = null; // { done, total }
+let pendingPricesState = null; // { total, startedAt }
+
+// setInterval handle for the button's own elapsed-time counter (see
+// formatPendingPricesElapsed) — null when idle. A single shared timer rather
+// than one per button: only one backfill ever runs at a time (see
+// pendingPricesState above), and every button re-render already looks the
+// live element up by id, so one interval covers whichever element is
+// current.
+let pendingPricesTimerId = null;
+
+/**
+ * "Carregando… Ns" instead of a card-count ("Carregando 3/38…"): a batch
+ * edits up to 100 cards on the managed deck in a single LigaMagic form
+ * submit (see PENDING_PRICE_BATCH_SIZE in background.js), so for the
+ * overwhelming majority of runs — anything under 100 missing cards — there
+ * is only ever one batch, and a done/total counter would sit frozen at
+ * "0/N" for the entire run and then jump straight to "N/N" at the very end.
+ * Elapsed time is the only part of this that visibly moves the whole way
+ * through.
+ */
+function formatPendingPricesElapsed(startedAt) {
+  const secs = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+  return `Carregando… ${secs}s`;
+}
+
+function startPendingPricesTimer() {
+  if (pendingPricesTimerId) return; // already ticking
+  pendingPricesTimerId = setInterval(() => {
+    if (!pendingPricesState) {
+      stopPendingPricesTimer();
+      return;
+    }
+    // Looked up fresh every tick, not captured once: the button element
+    // this started on may not be the one currently in the DOM (see the
+    // Moxfield SPA note above).
+    const liveBtn = document.getElementById(PENDING_PRICES_BTN_ID);
+    if (liveBtn) liveBtn.textContent = formatPendingPricesElapsed(pendingPricesState.startedAt);
+  }, 1000);
+}
+
+function stopPendingPricesTimer() {
+  if (!pendingPricesTimerId) return;
+  clearInterval(pendingPricesTimerId);
+  pendingPricesTimerId = null;
+}
 
 /** Name of the deck/page currently open, read off its own <h1> — every site this runs on titles the page that way. Used to name the single LigaMagic deck the pending-prices backfill manages (see contextName below), but only the first time that deck is ever created on an account — never a fixed literal. */
 function getViewedDeckName() {
   return document.querySelector("h1")?.textContent?.trim() || null;
 }
 
-function createPendingPricesWrapper(mountAfter, toolbarGap, btnPadding, btnBorderRadius, btnHeight) {
+function createPendingPricesWrapper(mountAfter, toolbarGap, btnPadding, btnBorderRadius, btnHeight, fullWidthRow) {
   const wrapper = document.createElement("div");
   wrapper.id = PENDING_PRICES_WRAPPER_ID;
   Object.assign(wrapper.style, {
@@ -228,7 +287,28 @@ function createPendingPricesWrapper(mountAfter, toolbarGap, btnPadding, btnBorde
 
   wrapper.appendChild(btn);
 
-  if (mountAfter) {
+  if (mountAfter && fullWidthRow) {
+    // Moxfield's toolbar row (.row.justify-content-between... with
+    // flex-wrap) doesn't give this wrapper a row of its own to sit in --
+    // whether it lands at the end of the existing line or wraps onto a new
+    // one depends entirely on how many native buttons happen to be present
+    // (Primer/Bulk Edit vary by deck ownership and content), so neither
+    // case was ever actually centered on purpose; the "sometimes looks
+    // fine" case was just everything happening to fit on one line.
+    // flex-basis: 100% forces this item to always start its own line
+    // inside that wrapping flex row regardless of how many native buttons
+    // came before it, and justify-content: center centers the button
+    // within that line -- identical outcome whether Primer/Bulk Edit are
+    // present or not, confirmed live at both a wide desktop width and a
+    // narrower ~1280px one.
+    Object.assign(wrapper.style, {
+      width: "100%",
+      flexBasis: "100%",
+      justifyContent: "center",
+      margin: "8px 0 0 0",
+    });
+    mountAfter.insertAdjacentElement("afterend", wrapper);
+  } else if (mountAfter) {
     // Matches the toolbar's own spacing between its buttons (measured per
     // site — each one uses a different value), so this reads as one more
     // button in that row rather than a bolted-on extra.
@@ -413,6 +493,10 @@ function buildPendingPricesResultMessage(total, failedNames) {
  *   button is 39px) when matching it by padding alone isn't reliable
  *   because the two buttons use different font sizes. Omit to size the
  *   button off its padding/font the normal way.
+ * @param {boolean} [opts.fullWidthRow] toolbar mode only — forces the button
+ *   onto its own centered line instead of sitting inline after `mountAfter`,
+ *   for a toolbar row that wraps (Moxfield's) where relying on it happening
+ *   to wrap in the right place isn't reliable (see createPendingPricesWrapper).
  * @param {() => boolean} [opts.checkPriceColumnEnabled] site-specific check
  *   run at click time, before anything else — if it returns false, a red
  *   error is shown instead of starting the backfill (the missing prices are
@@ -432,6 +516,7 @@ function renderPendingPricesButton({
   btnPadding,
   btnBorderRadius,
   btnHeight,
+  fullWidthRow,
   checkPriceColumnEnabled,
   priceColumnHelp,
 }) {
@@ -443,8 +528,12 @@ function renderPendingPricesButton({
     if (btn) {
       btn.disabled = true;
       btn.style.cursor = "default";
-      btn.textContent = `Carregando ${pendingPricesState.done}/${pendingPricesState.total}…`;
+      btn.textContent = formatPendingPricesElapsed(pendingPricesState.startedAt);
     }
+    // Restarts the ticking if a previous element/interval got torn down by
+    // an SPA re-render (see the timer's own singleton comment) — a no-op
+    // when it's already running.
+    startPendingPricesTimer();
     return;
   }
 
@@ -467,8 +556,8 @@ function renderPendingPricesButton({
     // A null mountAfter here isn't necessarily wrong — Scryfall floats by
     // design when it has no anchor to use — so whether that's expected or a
     // real failure is judged where the anchor is looked up (findToolbarAnchor
-    // in Moxfield/Archidekt, waitForFilterButton in Scryfall), not here.
-    existing = createPendingPricesWrapper(mountAfter, toolbarGap, btnPadding, btnBorderRadius, btnHeight).wrapper;
+    // in Moxfield/Archidekt, waitForFilterControls in Scryfall), not here.
+    existing = createPendingPricesWrapper(mountAfter, toolbarGap, btnPadding, btnBorderRadius, btnHeight, fullWidthRow).wrapper;
   }
 
   const btn = existing.querySelector(`#${PENDING_PRICES_BTN_ID}`);
@@ -498,10 +587,11 @@ function renderPendingPricesButton({
       return;
     }
 
-    pendingPricesState = { done: 0, total: missingNames.length };
+    pendingPricesState = { total: missingNames.length, startedAt: Date.now() };
     btn.disabled = true;
     btn.style.cursor = "default";
-    btn.textContent = `Carregando 0/${missingNames.length}…`;
+    btn.textContent = formatPendingPricesElapsed(pendingPricesState.startedAt);
+    startPendingPricesTimer();
 
     // The backfill can run for many seconds across several background tabs —
     // too long to trust a single sendMessage response channel to survive (it
@@ -509,19 +599,26 @@ function renderPendingPricesButton({
     // updated correctly, but the response callback below never fires). So
     // this listens for the background's own progress messages instead of
     // waiting on loadPendingPrices's response — done >= total on the last one
-    // doubles as the completion signal.
+    // doubles as the completion signal. Intermediate messages don't touch the
+    // button text themselves any more (the elapsed-time interval owns that
+    // now); they only matter here for spotting the final one.
     const listener = (m) => {
       if (m.action !== "pendingPricesProgress") return;
-      pendingPricesState = { done: m.done, total: m.total };
-      const liveBtn = document.getElementById(PENDING_PRICES_BTN_ID);
-      if (liveBtn) liveBtn.textContent = `Carregando ${m.done}/${m.total}…`;
       if (m.done < m.total) return;
       chrome.runtime.onMessage.removeListener(listener);
       pendingPricesState = null;
+      stopPendingPricesTimer();
 
       const liveMsg = document.getElementById(PENDING_PRICES_MSG_ID);
-      const { text, kind } = buildPendingPricesResultMessage(m.total, m.failedNames ?? []);
-      setPendingPricesMessage(liveMsg, text, kind);
+      const liveBtn = document.getElementById(PENDING_PRICES_BTN_ID);
+      // A signed-out session (see pageIsLoggedOut in background.js) isn't a
+      // "cards not found" result — none of them were ever actually looked
+      // up — so it gets its own message instead of going through
+      // buildPendingPricesResultMessage.
+      const { text, kind } = m.loggedOut
+        ? { text: "Você não está logado no LigaMagic — faça login e tente de novo.", kind: "error" }
+        : buildPendingPricesResultMessage(m.total, m.failedNames ?? []);
+      setPendingPricesMessage(liveMsg, text, kind, liveBtn);
       const messageDurationMs = kind === "success" ? PENDING_PRICES_SUCCESS_MESSAGE_MS : PENDING_PRICES_RESULT_MESSAGE_MS;
       setTimeout(() => {
         if (document.getElementById(PENDING_PRICES_MSG_ID) === liveMsg) {

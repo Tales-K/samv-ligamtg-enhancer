@@ -125,6 +125,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // ── Settings ────────────────────────────────────────────────────────────────
   const checkboxIds = [
+    "addCardSearchContextMenu",
     "overlayArchidekt",
     "overlayMoxfield",
     "overlayScryfall",
@@ -132,6 +133,7 @@ document.addEventListener("DOMContentLoaded", () => {
     "addScryfallTagsButton",
     "addScryfallFilterButton",
     "addPriceView",
+    "addDeckGridPrices",
     "addMeusDecksTab",
     "addMeusPedidosTab",
     "removeLeiloesTab",
@@ -171,6 +173,14 @@ document.addEventListener("DOMContentLoaded", () => {
         settings: { [id]: e.target.checked },
       });
     });
+  });
+
+  // Confirms right in the popup's own console that the setting actually
+  // took — the first thing a just-enabled logsEnabled flag prints anywhere,
+  // since every other log() call lives in a page/service-worker console
+  // this popup can't see.
+  document.getElementById("showDebugLogs")?.addEventListener("change", (e) => {
+    if (e.target.checked) console.log("[LigaMagic Tracker] logs habilitados");
   });
 
   // The filter fields only mean anything while the button that applies them

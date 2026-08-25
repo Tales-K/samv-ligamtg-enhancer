@@ -4,10 +4,51 @@
  * to scraper-deck.js, scraper-card.js, and content.js.
  */
 
-const IS_LOCAL = false; // set to false in production builds
+// Gated by the "showDebugLogs" setting (hidden checkbox in the popup
+// footer, click the version number) — same mechanism overlay-utils.js uses
+// for the Archidekt/Moxfield/Scryfall side. This used to be a hardcoded
+// IS_LOCAL flag, disconnected from that checkbox entirely: every log() call
+// across the LigaMagic-side scripts (scraper-card.js's own "why couldn't
+// this card's price be found" messages included) was dead code in any real
+// install, regardless of the setting.
+let logsEnabled = false;
+chrome.runtime.sendMessage({ action: "getSettings" }, (settings) => {
+  if (!chrome.runtime.lastError) logsEnabled = settings?.showDebugLogs === true;
+});
+// The line above only reads the setting once, at injection time — without
+// this listener, flipping the checkbox on an already-open tab would need a
+// reload before logsEnabled ever picked up the change. Pushed here as its
+// own message (see saveSettings in background.js) rather than picked up via
+// chrome.storage.onChanged: confirmed empirically that a storage.local
+// write from the background service worker never reaches a content
+// script's own onChanged listener in this setup, even though the exact
+// same listener registered in the service worker's own context fires
+// normally for it.
+// Guarded on the key being present rather than reading it unconditionally:
+// "settingsChanged" also carries other live-updated settings (see
+// saveSettings in background.js), and a message sent for one of those that
+// happened to omit this key would otherwise read as `undefined === true`
+// and silently switch logging off mid-session.
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg.action !== "settingsChanged") return;
+  if ("showDebugLogs" in msg) logsEnabled = msg.showDebugLogs === true;
+});
 
 function log(...args) {
-  if (IS_LOCAL) console.log("[LigaMagic Tracker]", ...args);
+  if (logsEnabled) console.log("[LigaMagic Tracker]", ...args);
+}
+
+/**
+ * Logs why an injected control (button, panel entry, whatever) did NOT
+ * render — via console.warn rather than console.log so it stands out from
+ * log()'s trace when both are on, but gated behind the same logsEnabled
+ * flag. Call only on the failure/skip path; a control that renders fine
+ * doesn't need one of these. Mirrors overlay-utils.js's own logNotShown,
+ * used on the Archidekt/Moxfield/Scryfall side.
+ */
+function logNotShown(controlName, reason) {
+  if (!logsEnabled) return;
+  console.warn(`[LigaMagic Tracker] "${controlName}" não exibido — ${reason}`);
 }
 
 // ── DOM readiness ────────────────────────────────────────────────────────────
@@ -35,6 +76,13 @@ function waitForElement(tryFn, timeoutMs = 15_000) {
 const SAMV_PURPLE = "#6d4fc4";
 const SAMV_PURPLE_HOVER = "#7c5ce0";
 const SAMV_PURPLE_TEXT = "#f5f3ff";
+
+// Same green/yellow/red overlay-utils.js's priceColor() uses elsewhere in the
+// extension — reused here to mark which of the three values (min/avg/max) a
+// price is, not how fresh it is.
+const SAMV_PRICE_MIN_COLOR = "#33ac5f";
+const SAMV_PRICE_AVG_COLOR = "#cfad25";
+const SAMV_PRICE_MAX_COLOR = "#c73b3b";
 
 /**
  * Paints one injected control, either filled (purple background, light text)
