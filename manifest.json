@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SAMV LigaMtg Enhancer",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Aprimorador não oficial do LigaMagic: preços em reais no Archidekt, Moxfield e Scryfall e melhorias de navegação.",
   "permissions": ["activeTab", "storage", "scripting", "contextMenus"],
   "host_permissions": [
