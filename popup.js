@@ -141,6 +141,7 @@ document.addEventListener("DOMContentLoaded", () => {
     "replaceGerarImagemWithCopiarDeck",
     "removeGerarImagemButton",
     "addCardHoverLinks",
+    "addEditionSearchButton",
     "rememberListaFilters",
     "addLoadDefaultsButton",
     "enableCustomStoreSearch",

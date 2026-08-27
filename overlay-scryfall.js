@@ -1,26 +1,30 @@
 /**
- * Scryfall price overlay — adds a BRL price column from LigaMagic to the
- * prints table on search results (full view) and individual card pages.
+ * Scryfall price overlay — adds a BRL price from LigaMagic to search results
+ * and individual card pages.
  *
  * Works on:
- *   - https://scryfall.com/search?...&as=full  (multiple cards per page)
- *   - https://scryfall.com/card/...             (single card page)
+ *   - https://scryfall.com/search?...&as=full  (prints-table column, multiple cards per page)
+ *   - https://scryfall.com/search?...&as=grid  (small badge over each card tile)
+ *   - https://scryfall.com/card/...             (single card page, same as as=full)
  *
  * Flow:
- *   1. Collect all unique card names from every div.inner-flex on the page.
+ *   1. Collect all unique card names from every div.inner-flex (as=full/card
+ *      page) and .card-grid-item (as=grid) on the page.
  *   2. Ask the background worker for locally cached prices (chrome.storage.local).
  *   3. For each card block, find the prints table with USD/EUR/TIX columns and
- *      inject a new "R$" header + one BRL cell per row (same price for all prints).
+ *      inject a new "R$" header + one BRL cell per row (same price for all
+ *      prints); for each grid tile, overlay a small price badge instead,
+ *      since that view has no table to extend.
  *   4. Show a floating "Carregar preços pendentes" button when some cards came
  *      back with no cached price (see renderPendingPricesButton).
  *   5. On an individual card page, add a "Comprar no LigaMagic" entry to
  *      Scryfall's own "Buy This Card" panel (see injectBuyButton).
- *   6. Re-run automatically if new card blocks are injected into the DOM.
+ *   6. Re-run automatically if new card blocks/tiles are injected into the DOM.
  *
  * Depends on: overlay-utils.js (log factory, priceColor, fmtBRL, logPriceMap,
- * queryPrices, observeAndRerun, hasAddedNodeMatching) — shared with the
- * Archidekt/Moxfield overlays. Does NOT depend on content-utils.js (different
- * host, separate injection).
+ * queryPrices, observeAndRerun, hasAddedNodeMatching, stripArenaAlchemyPrefix)
+ * — shared with the Archidekt/Moxfield overlays. Does NOT depend on
+ * content-utils.js (different host, separate injection).
  */
 
 const log = createLogger("Scryfall");
@@ -272,6 +276,98 @@ function loadPriceForBlock(block, onDone) {
   });
 }
 
+// ── Grid view ("as=grid" search results) ────────────────────────────────────
+// Each tile is a .card-grid-item (position: relative, plain card art, no
+// price of any kind natively) with a visually-hidden .card-grid-item-
+// invisible-label carrying the card's name as plain text.
+const SEL_GRID_ITEM = ".card-grid-item";
+const SEL_GRID_ITEM_LABEL = ".card-grid-item-invisible-label";
+const GRID_PROCESSED_ATTR = "data-lm-scryfall-grid-processed";
+const GRID_BADGE_CLASS = "lm-ext-grid-price-badge";
+
+/**
+ * Unlike .card-text-card-name elsewhere on Scryfall (see cardNameOf above),
+ * this label has no separate element for the "A-" Arena-rebalance stamp to
+ * exclude -- confirmed live against "A-Dungeon Descent": it's fused directly
+ * into the label's own text node, with nothing to structurally split off.
+ * stripArenaAlchemyPrefix (the same helper Moxfield/Archidekt use for their
+ * own plain-text name sources) is the right tool here, not a workaround.
+ */
+function gridItemName(item) {
+  const raw = item.querySelector(SEL_GRID_ITEM_LABEL)?.textContent?.trim();
+  return raw ? stripArenaAlchemyPrefix(raw) : null;
+}
+
+function extractGridCardNames() {
+  const names = new Set();
+  document.querySelectorAll(SEL_GRID_ITEM).forEach((item) => {
+    if (item.hasAttribute(GRID_PROCESSED_ATTR)) return;
+    const name = gridItemName(item);
+    if (name) names.add(name);
+  });
+  return [...names];
+}
+
+/**
+ * Overlays a small price badge across the bottom of each tile — the grid
+ * view has no table to extend a column onto like as=full does, so the price
+ * sits directly on the card art instead. Colored by freshness (priceColor),
+ * same as everywhere else that shows a single price rather than min/avg/max
+ * side by side (see the color-legend note in FEATURES.md).
+ */
+function applyGridPrices(priceMap, openLigaMagicOnClick = true, items = document.querySelectorAll(SEL_GRID_ITEM)) {
+  let processed = 0;
+
+  items.forEach((item) => {
+    if (item.hasAttribute(GRID_PROCESSED_ATTR)) return;
+    const name = gridItemName(item);
+    if (!name) return;
+
+    const info = priceMap[name] ?? null;
+
+    // Re-run after a pending-prices backfill clears GRID_PROCESSED_ATTR on
+    // exactly the items that were missing a price (see run()) -- the old
+    // "R$ —" badge from the first pass is still sitting in the DOM at that
+    // point, so it's removed here rather than left behind under a second,
+    // newly-priced one.
+    item.querySelector(`.${GRID_BADGE_CLASS}`)?.remove();
+
+    const badge = document.createElement(openLigaMagicOnClick ? "a" : "div");
+    badge.className = GRID_BADGE_CLASS;
+    if (openLigaMagicOnClick) {
+      badge.href = LIGAMAGIC_BASE + encodeURIComponent(name);
+      badge.target = "_blank";
+      badge.rel = "noopener noreferrer";
+    }
+    badge.textContent = fmtBRL(info?.priceMin ?? null);
+    badge.title = info
+      ? `LigaMagic — atualizado em ${new Date(info.updatedAt).toLocaleDateString("pt-BR")}`
+      : "Sem preço no LigaMagic";
+    // A normal block below the image (not an absolute overlay on top of it)
+    // -- appended after the tile's own <a>, it just adds to the tile's
+    // natural height, and .card-grid-inner (display: flex; flex-wrap) lays
+    // out subsequent rows around that taller height on its own, no extra
+    // layout work needed on this end. No background fill: sitting below the
+    // art rather than on top of it, it doesn't need a backdrop for contrast
+    // the way the overlay version did.
+    Object.assign(badge.style, {
+      display: "block",
+      textAlign: "center",
+      padding: "3px 0",
+      fontSize: "12px",
+      fontWeight: "700",
+      color: priceColor(info?.updatedAt),
+      textDecoration: "none",
+    });
+
+    item.appendChild(badge);
+    item.setAttribute(GRID_PROCESSED_ATTR, "1");
+    processed++;
+  });
+
+  if (processed > 0) log(`Processed ${processed} grid item(s).`);
+}
+
 // ── "Buy This Card" panel button ────────────────────────────────────────────
 // Scryfall's own panel of purchase links (TCGplayer/Cardmarket/Cardhoarder),
 // present only on an individual card page — a search-results page lists many
@@ -367,7 +463,7 @@ function run() {
       }
     }
 
-    const names = extractCardNames();
+    const names = [...new Set([...extractCardNames(), ...extractGridCardNames()])];
     if (names.length === 0) return;
     log(`Found ${names.length} unique card(s) — querying BRL prices…`);
 
@@ -376,19 +472,24 @@ function run() {
       log(`Prices received: ${found}/${names.length}`);
       logPriceMap(log, priceMap, names);
       applyPrices(priceMap, openLigaMagicOnClick);
+      applyGridPrices(priceMap, openLigaMagicOnClick);
 
       const missingNames = names.filter((n) => !priceMap[n]);
       waitForFilterControls((filterControls) => {
         renderPendingPricesButton({
           missingNames,
           onDone: () => {
-            // applyPrices() marks every block PROCESSED_ATTR regardless of
-            // whether a price was found, so a plain re-run would skip these
-            // blocks and never pick up the price the backfill just cached —
-            // clear the marker on exactly the ones that were missing.
+            // applyPrices()/applyGridPrices() mark every block/tile processed
+            // regardless of whether a price was found, so a plain re-run
+            // would skip them and never pick up the price the backfill just
+            // cached — clear the marker on exactly the ones that were missing.
             document.querySelectorAll(SEL_CARD_BLOCK).forEach((block) => {
               const name = cardNameOf(block.querySelector(SEL_CARD_NAME));
               if (name && missingNames.includes(name)) block.removeAttribute(PROCESSED_ATTR);
+            });
+            document.querySelectorAll(SEL_GRID_ITEM).forEach((item) => {
+              const name = gridItemName(item);
+              if (name && missingNames.includes(name)) item.removeAttribute(GRID_PROCESSED_ATTR);
             });
             run();
           },
@@ -414,5 +515,8 @@ function run() {
 
 // ── Observer ──────────────────────────────────────────────────────────────────
 // Scryfall is largely server-rendered; observe for any dynamically injected
-// card blocks (e.g. tooltip previews or lazy-loaded results).
-observeAndRerun((mutations) => hasAddedNodeMatching(mutations, SEL_CARD_BLOCK), run);
+// card blocks or grid tiles (e.g. tooltip previews or lazy-loaded results).
+observeAndRerun(
+  (mutations) => hasAddedNodeMatching(mutations, SEL_CARD_BLOCK) || hasAddedNodeMatching(mutations, SEL_GRID_ITEM),
+  run,
+);

@@ -2,7 +2,13 @@
  * Adds "Scryfall", "EDHREC" and "Copiar nome" buttons above the card-hover image
  * tooltip (#mystickytooltip) that LigaMagic's own stickytooltip.js library
  * shows on any .sticky_lazy card link -- deck pages, "Meus Decks" listing,
- * wherever the site uses it.
+ * wherever the site uses it. The .card-item search grid (?view=cards/search
+ * and other pages reusing that same markup, e.g. Compra por Lista) shows the
+ * same #mystickytooltip preview on hover too, triggered off its own
+ * a.main-link-card image link rather than a .sticky_lazy element -- so that
+ * link is wired into the same bridge below instead of getting a separate
+ * floating box of its own, keeping both pages' hover box positioned exactly
+ * where the site's own preview actually renders.
  *
  * Depends on: content-utils.js (waitForElement, cardNameFromHref,
  * applySamvStyle, getSettings, showCopiedFeedback, log)
@@ -12,10 +18,22 @@ const STICKY_TOOLTIP_ID = "mystickytooltip";
 const CARD_LINKS_BAR_ID = "lm-ext-card-links";
 const CARD_LINKS_COPY_CLASS = "lm-ext-copy-name";
 const STICKY_LAZY_SELECTOR = ".sticky_lazy";
-// Tolerance for the empty space between the card link and the tooltip box
-// (the box sits at a fixed offset from the cursor, not glued to it), so the
-// cursor has time to cross the gap before the box actually disappears.
-const HOVER_HIDE_GRACE_MS = 200;
+// The search grid's own card-image link -- doesn't carry .sticky_lazy, but
+// triggers the exact same native #mystickytooltip preview on hover.
+const SEARCH_CARD_LINK_SELECTOR = "a.main-link-card";
+const HOVER_TRIGGER_SELECTOR = `${STICKY_LAZY_SELECTOR}, ${SEARCH_CARD_LINK_SELECTOR}`;
+// Tolerance for the empty space between the card link and the tooltip box,
+// so the cursor has time to cross the gap before the box actually
+// disappears. Generous on purpose: initHoverBridge's own position-lock (see
+// its doc comment) stops the box from drifting once reached, but reaching it
+// in the first place can still mean crossing real, unrelated page content --
+// the search grid's own tooltip is tall enough (its card image alone) that
+// our button bar, placed below it, can end up several hundred px of
+// diagonal travel from the card that triggered it, confirmed live crossing
+// other cards' own name/price/button markup along the way. A 200-450ms
+// grace covered a short deck-view hop but still let the box hide mid-travel
+// on that longer path.
+const HOVER_HIDE_GRACE_MS = 700;
 
 function scryfallSearchUrl(name) {
   const frontFace = name.split(" // ")[0];
@@ -56,9 +74,17 @@ function cardNameFromStickyLazy(el) {
   return (anchor && cardNameFromHref(anchor.getAttribute("href"))) || el.textContent.trim();
 }
 
-/** Builds the three-button bar once, right before .stickyloadedimgs -- the
- * box has no fixed height or overflow:hidden, so it grows to fit whatever
- * comes above the image. Called on the first card hover rather than at
+/** Builds the three-button bar once, appended after whatever native content
+ * the tooltip box already has (the card image, plus any of the site's own
+ * chrome around it) -- the box has no fixed height or overflow:hidden, so it
+ * grows to fit whatever comes below the image. Appending rather than
+ * targeting a specific "image wrapper" class also sidesteps that class
+ * differing between hosts of this same tooltip (deck view's own
+ * .stickyloadedimgs vs. the search grid's .mystickytooltip_cards, confirmed
+ * live) -- this only runs on the very first hover for a given box, before
+ * any of our own elements exist in it, so "append" and "place after the
+ * native content" are the same thing regardless of what that content's
+ * class happens to be. Called on the first card hover rather than at
  * start-up, so pages that never show a card tooltip get no bar at all. */
 function injectCardLinksBar(box) {
   if (box.querySelector(`#${CARD_LINKS_BAR_ID}`)) return;
@@ -119,12 +145,7 @@ function injectCardLinksBar(box) {
   });
   bar.appendChild(copyButton);
 
-  // The bar has to end up inside the box, so it's hidden along with it:
-  // "beforebegin" of the image container keeps it a sibling within the same
-  // box, just placed above the image instead of below it.
-  const loadedImgs = box.querySelector(".stickyloadedimgs");
-  if (loadedImgs) loadedImgs.insertAdjacentElement("beforebegin", bar);
-  else box.appendChild(bar);
+  box.appendChild(bar);
   log("Injected Scryfall/EDHREC card-hover links.");
 }
 
@@ -159,7 +180,10 @@ function buildCardPriceParts(info) {
   ].filter(([value]) => value != null);
 }
 
-/** Built once per tooltip box, right after the card image — same width as the image, hidden until a price is actually found. */
+/** Built once per tooltip box, appended after the button bar above (see
+ * injectCardLinksBar's own doc comment on why "append" rather than
+ * targeting a specific native class) — same width as the image, hidden
+ * until a price is actually found. */
 function injectCardHoverPriceLine(box) {
   if (box.querySelector(`#${CARD_HOVER_PRICE_ID}`)) return;
 
@@ -181,9 +205,7 @@ function injectCardHoverPriceLine(box) {
     borderRadius: "4px",
   });
 
-  const loadedImgs = box.querySelector(".stickyloadedimgs");
-  if (loadedImgs) loadedImgs.insertAdjacentElement("afterend", line);
-  else box.appendChild(line);
+  box.appendChild(line);
 }
 
 /**
@@ -245,6 +267,24 @@ function updateCardHoverPrice(box, name) {
  * bubble-phase listener, so stopPropagation() here keeps it from ever
  * seeing the event -- we take over hiding the box entirely instead of
  * racing the library for it, and isdocked is never touched.
+ *
+ * The box also keeps repositioning itself horizontally on every mousemove
+ * while shown (confirmed live: its inline `left` tracks the cursor's own X
+ * 1:1, `top` stays fixed, and this first happens on the *first mousemove
+ * after* the hover starts, not on the mouseover itself) -- moving toward it,
+ * the cursor's own approach is what keeps shifting it, so it can never
+ * actually be caught. lockBoxPosition below freezes it in place once that
+ * first repositioning has happened, via a MutationObserver reverting any
+ * further `style` change -- turning it back into a normal, stationary target
+ * for the rest of that hover. Locking right on mouseover instead would catch
+ * the box at whatever stale/unset position it had before ever being placed
+ * for this card, so the freeze instead waits for one real mousemove -- by
+ * the time our own listener for it runs (deferred with setTimeout so it
+ * lands in the next task), the library's own same-event listener has always
+ * already finished positioning it, regardless of which of us it's attached
+ * before. Unlocks on hide(), so hovering a *different* card afterward still
+ * gets the library's own fresh positioning for that card, before being
+ * locked again in its new spot.
  */
 function initHoverBridge(box) {
   if (box.dataset.samvHoverBridge) return;
@@ -252,15 +292,41 @@ function initHoverBridge(box) {
 
   let hideTimer = null;
   const cancelHide = () => clearTimeout(hideTimer);
+
+  let lockedLeft = null;
+  let lockedTop = null;
+  let awaitingFirstMove = false;
+  const positionLock = new MutationObserver(() => {
+    if (lockedLeft === null) return;
+    if (box.style.left !== lockedLeft) box.style.left = lockedLeft;
+    if (box.style.top !== lockedTop) box.style.top = lockedTop;
+  });
+  positionLock.observe(box, { attributes: true, attributeFilter: ["style"] });
+  const lockBoxPosition = () => {
+    lockedLeft = box.style.left;
+    lockedTop = box.style.top;
+  };
+  const unlockBoxPosition = () => {
+    lockedLeft = null;
+    lockedTop = null;
+  };
+
+  document.addEventListener("mousemove", () => {
+    if (!awaitingFirstMove) return;
+    awaitingFirstMove = false;
+    setTimeout(lockBoxPosition, 0);
+  });
+
   const hide = () => {
     cancelHide();
     box.style.display = "none";
+    unlockBoxPosition();
   };
 
   document.addEventListener(
     "mouseout",
     (e) => {
-      if (!e.target.closest?.(STICKY_LAZY_SELECTOR)) return;
+      if (!e.target.closest?.(HOVER_TRIGGER_SELECTOR)) return;
       e.stopPropagation();
       cancelHide();
       hideTimer = setTimeout(hide, HOVER_HIDE_GRACE_MS);
@@ -284,9 +350,14 @@ function initHoverBridge(box) {
   // cursor moved straight from one card to the next without ever reaching
   // the box.
   document.addEventListener("mouseover", (e) => {
-    const link = e.target.closest?.(STICKY_LAZY_SELECTOR);
+    const link = e.target.closest?.(HOVER_TRIGGER_SELECTOR);
     if (!link) return;
     cancelHide();
+    // Let the library reposition freely for this (possibly new) card first
+    // -- it hasn't placed the box for it yet at this point (see the doc
+    // comment above), so locking here would freeze a stale position instead.
+    unlockBoxPosition();
+    awaitingFirstMove = true;
     const name = cardNameFromStickyLazy(link);
     updateCardLinks(box, name);
     updateCardHoverPrice(box, name);

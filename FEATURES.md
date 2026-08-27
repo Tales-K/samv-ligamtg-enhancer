@@ -46,13 +46,21 @@ mínimo, amarelo o médio, vermelho o máximo — em vez de indicar idade.
   numa linha só, coloridos por identidade (verde/amarelo/vermelho, ver nota
   acima) em vez de rotulados por texto (habilitado por padrão)
 
-### Hover de carta (tooltip ao passar o mouse sobre o nome de uma carta) —
-deck, listagem de "Meus Decks", e qualquer outro lugar do site que use o
-mesmo tooltip; também na página individual da carta
-- Botões "Scryfall", "EDHREC" e "Copiar nome" acima da imagem do hover
-- Preço Mín/Méd/Máx (quando disponível) abaixo da imagem do hover, lado a
-  lado numa linha só, coloridos por identidade (ver nota sobre cores no topo
-  do arquivo) — fundo esbranquiçado atrás do texto para facilitar a leitura
+### Hover de carta (tooltip ao passar o mouse sobre o nome ou a imagem de
+uma carta) — deck, listagem de "Meus Decks", grade de busca de cartas
+(`?view=cards/search` e outras páginas com a mesma grade, ex.: Compra por
+Lista), e qualquer outro lugar do site que use o mesmo tooltip; também na
+página individual da carta
+- Botões "Scryfall", "EDHREC" e "Copiar nome" na caixa do hover — não
+  desaparece ao mover o mouse em direção aos botões
+- Preço Mín/Méd/Máx (quando disponível) na caixa do hover, lado a lado numa
+  linha só, coloridos por identidade (ver nota sobre cores no topo do
+  arquivo) — fundo esbranquiçado atrás do texto para facilitar a leitura
+
+### Página individual da carta — `?view=cards/card&card=...`
+- Lupa roxa ao passar o mouse sobre uma versão na lista de versões — clicar
+  nela filtra a lista "Lojas Vendendo" da aba "Comprar no Marketplace" (mais
+  abaixo, na mesma página) por aquela edição
 
 ### Compra por Lista — `?view=cards/lista`
 - Aplicar filtros padrão automaticamente ao carregar a página (idiomas,
@@ -93,7 +101,7 @@ mesmo tooltip; também na página individual da carta
 - Link "Comprar no LigaMagic" — primeiro item da lista de lojas do popup de
   preview que aparece ao passar o mouse sobre uma carta, com o preço em BRL do
   lado igual as lojas nativas; acompanha a carta que o popup estiver mostrando
-  no momento
+  no momento. Mesmo link também no modal que abre ao clicar numa carta
 - Total do deck e de cada grupo recalculado em BRL, tanto nas visões de texto
   quanto nas de imagem (Visual Grid e Visual Spoiler)
 - Botão "Carregar preços pendentes" — busca no LigaMagic o preço de toda carta
@@ -105,6 +113,9 @@ mesmo tooltip; também na página individual da carta
   dispara a mesma busca que apertar Enter já dispara
 - Overlay de preço — coluna "R$" na tabela de impressões, em resultados de
   busca (`as=full`) e na página individual da carta
+- Selo de preço em BRL sobre cada carta nos resultados de busca em grade
+  (`as=grid`), colorido pela idade do preço (ver nota sobre cores no topo do
+  arquivo)
 - Botão "Carregar preços pendentes" — busca no LigaMagic o preço de toda carta
   que ainda não tem um valor em BRL
 - Botão "Comprar no LigaMagic" — primeiro item no painel nativo "Buy This

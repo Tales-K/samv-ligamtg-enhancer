@@ -334,29 +334,16 @@ function cardNameForHash(hash) {
   return text ? stripArenaAlchemyPrefix(text) : null;
 }
 
-/** Creates (once) or updates the LigaMagic entry at the front of the preview
- * panel's own buy-links list, pointed at whichever card the panel currently
- * shows. Called both right after the panel is found (covers the card it
- * shows before any hover happens) and on every subsequent image-src mutation
- * (covers the panel being re-pointed at a newly hovered card). */
-function updateHoverStoreLink(aside) {
-  const storeList = aside.querySelector(SEL_HOVER_STORE_LIST);
-  if (!storeList) {
-    logNotShown("Moxfield", "LigaMagic (popup de preview)", "lista de lojas do popup não encontrada");
-    return;
-  }
-
-  const hash = currentHoverCardHash(aside);
-  const name = cardNameForHash(hash);
-  if (!name) {
-    logNotShown(
-      "Moxfield",
-      "LigaMagic (popup de preview)",
-      `nome da carta não resolvido (data-hash="${hash ?? "?"}")`,
-    );
-    return;
-  }
-
+/**
+ * Creates (once) or updates the LigaMagic entry at the front of a buy-links
+ * list (div.d-grid.gap-2.mt-4.mx-auto), pointed at `name`. Shared by both
+ * places Moxfield renders that identical markup: the hover preview panel
+ * (updateHoverStoreLink) and the click-to-open card modal
+ * (updateModalStoreLink) -- each resolves the current card's name through
+ * its own means, but the link itself is built and priced the same way
+ * either way.
+ */
+function upsertLigaMagicStoreLink(storeList, name) {
   let link = storeList.querySelector(`[${HOVER_LINK_ATTR}]`);
   if (!link) {
     link = document.createElement("a");
@@ -400,6 +387,63 @@ function updateHoverStoreLink(aside) {
     ? `LigaMagic — atualizado em ${new Date(info.updatedAt).toLocaleDateString("pt-BR")}`
     : "Sem preço no LigaMagic — clique para abrir a página do card";
 }
+
+/** Called both right after the preview panel is found (covers the card it
+ * shows before any hover happens) and on every subsequent image-src mutation
+ * (covers the panel being re-pointed at a newly hovered card). */
+function updateHoverStoreLink(aside) {
+  const storeList = aside.querySelector(SEL_HOVER_STORE_LIST);
+  if (!storeList) {
+    logNotShown("Moxfield", "LigaMagic (popup de preview)", "lista de lojas do popup não encontrada");
+    return;
+  }
+
+  const hash = currentHoverCardHash(aside);
+  const name = cardNameForHash(hash);
+  if (!name) {
+    logNotShown(
+      "Moxfield",
+      "LigaMagic (popup de preview)",
+      `nome da carta não resolvido (data-hash="${hash ?? "?"}")`,
+    );
+    return;
+  }
+
+  upsertLigaMagicStoreLink(storeList, name);
+}
+
+// ── Card detail modal (opened by clicking a card, not just hovering it) ────
+// Renders the identical buy-links markup as the hover panel above
+// (div.d-grid.gap-2.mt-4.mx-auto), inside div.modal-content -- but resolving
+// the card's name is simpler here: the modal has its own <h1> with the card's
+// display name, no data-hash/image-src lookup needed. Its "Prev"/"Next"
+// controls don't just update that text in place, though -- confirmed live
+// that clicking either one tears down and re-renders the whole modal
+// subtree (a fresh <h1>, a fresh store list, none of the same DOM nodes),
+// so this is driven by the same observeAndRerun reactive pattern the rest of
+// this file already uses for the main overlay, not a one-shot call.
+const SEL_MODAL_CONTENT = ".modal-content";
+
+function updateModalStoreLink() {
+  const modal = document.querySelector(SEL_MODAL_CONTENT);
+  if (!modal) return; // no card modal open right now -- nothing to do
+
+  const storeList = modal.querySelector(SEL_HOVER_STORE_LIST);
+  if (!storeList) {
+    logNotShown("Moxfield", "LigaMagic (modal da carta)", "lista de lojas do modal não encontrada");
+    return;
+  }
+
+  const name = modal.querySelector("h1")?.textContent?.trim();
+  if (!name) {
+    logNotShown("Moxfield", "LigaMagic (modal da carta)", "nome da carta não encontrado (h1 ausente no modal)");
+    return;
+  }
+
+  upsertLigaMagicStoreLink(storeList, stripArenaAlchemyPrefix(name));
+}
+
+observeAndRerun((mutations) => hasAddedNodeMatching(mutations, SEL_HOVER_STORE_LIST), updateModalStoreLink);
 
 /** Finds the preview panel (if currently on the page) and makes sure a
  * MutationObserver is watching its image for card changes. Cheap to call on
@@ -848,10 +892,12 @@ function run() {
       updateGroupTotals(priceMap);
       updateTileGroupTotals(priceMap);
       updateDeckTotal(priceMap);
-      // The panel may already be showing a card whose price only just
-      // arrived in this round — refresh it against the snapshot above.
+      // The panel (or an open card modal) may already be showing a card
+      // whose price only just arrived in this round — refresh both against
+      // the snapshot above.
       const hoverAside = document.querySelector(SEL_HOVER_ASIDE);
       if (hoverAside) updateHoverStoreLink(hoverAside);
+      updateModalStoreLink();
 
       const missingNames = names.filter((n) => !priceMap[n]);
       renderPendingPricesButton({

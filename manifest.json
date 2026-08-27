@@ -40,7 +40,7 @@
     {
       "matches": ["*://*.ligamagic.com.br/*"],
       "css": ["content.css"],
-      "js": ["content-utils.js", "detailed-format.js", "nav-menu.js", "scraper-deck.js", "deck-view.js", "deck-copy-button.js", "deck-grid-prices.js", "lista-defaults.js", "store-search-override.js", "lista-copy-button.js", "analise-economia.js", "carrinho-copy-button.js", "card-hover-links.js", "scraper-card.js", "content.js"]
+      "js": ["content-utils.js", "detailed-format.js", "nav-menu.js", "scraper-deck.js", "deck-view.js", "deck-copy-button.js", "deck-grid-prices.js", "lista-defaults.js", "store-search-override.js", "lista-copy-button.js", "analise-economia.js", "carrinho-copy-button.js", "card-hover-links.js", "edition-search-filter.js", "scraper-card.js", "content.js"]
     },
     {
       "matches": ["*://*.archidekt.com/*"],
