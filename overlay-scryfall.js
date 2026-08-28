@@ -118,7 +118,10 @@ function applyPrices(priceMap, openLigaMagicOnClick = true, blocks = document.qu
     if (block.hasAttribute(PROCESSED_ATTR)) return;
 
     const name = cardNameOf(block.querySelector(SEL_CARD_NAME));
-    if (!name) return;
+    if (!name) {
+      logNotShown("Scryfall", "coluna R$", `bloco "${SEL_CARD_BLOCK}" sem nome legível (cardNameOf retornou vazio) — nenhum preço aplicado a ele`);
+      return;
+    }
 
     const info = priceMap[name] ?? null;
 
@@ -130,7 +133,16 @@ function applyPrices(priceMap, openLigaMagicOnClick = true, blocks = document.qu
         break;
       }
     }
-    if (!priceTable) return;
+    if (!priceTable) {
+      logNotShown("Scryfall", "coluna R$", `"${name}" — nenhuma tabela de preços (${SEL_PRINTS_TABLE} com coluna USD) encontrada no bloco; preço não pôde ser escrito na página`);
+      return;
+    }
+
+    log(
+      info?.priceMin != null
+        ? `${name}: preço R$ ${info.priceMin.toFixed(2)} encontrado no cache — escrevendo na coluna R$ da tabela de prints`
+        : `${name}: sem preço no cache — coluna R$ mostrará "R$ —"`,
+    );
 
     const label = fmtBRL(info?.priceMin ?? null);
     const url = LIGAMAGIC_BASE + encodeURIComponent(name);
@@ -230,6 +242,9 @@ function applyPrices(priceMap, openLigaMagicOnClick = true, blocks = document.qu
       row.appendChild(td);
     });
 
+    const rowCount = priceTable.querySelectorAll("tbody tr").length;
+    log(rowCount > 0 ? `${name}: coluna R$ escrita em ${rowCount} linha(s) da tabela` : `${name}: tabela de prints não tinha nenhuma linha — nenhuma célula de preço foi de fato inserida`);
+
     block.setAttribute(PROCESSED_ATTR, "1");
     processed++;
   });
@@ -321,9 +336,17 @@ function applyGridPrices(priceMap, openLigaMagicOnClick = true, items = document
   items.forEach((item) => {
     if (item.hasAttribute(GRID_PROCESSED_ATTR)) return;
     const name = gridItemName(item);
-    if (!name) return;
+    if (!name) {
+      logNotShown("Scryfall", "badge de preço (grade)", `item "${SEL_GRID_ITEM}" sem nome legível (${SEL_GRID_ITEM_LABEL} ausente ou vazio) — nenhum preço aplicado a ele`);
+      return;
+    }
 
     const info = priceMap[name] ?? null;
+    log(
+      info?.priceMin != null
+        ? `${name}: preço R$ ${info.priceMin.toFixed(2)} encontrado no cache — escrevendo no badge da grade`
+        : `${name}: sem preço no cache — badge mostrará "R$ —"`,
+    );
 
     // Re-run after a pending-prices backfill clears GRID_PROCESSED_ATTR on
     // exactly the items that were missing a price (see run()) -- the old
@@ -361,6 +384,7 @@ function applyGridPrices(priceMap, openLigaMagicOnClick = true, items = document
     });
 
     item.appendChild(badge);
+    log(`${name}: badge inserido no DOM com texto "${badge.textContent}" (item.contains(badge) = ${item.contains(badge)})`);
     item.setAttribute(GRID_PROCESSED_ATTR, "1");
     processed++;
   });

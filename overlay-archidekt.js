@@ -53,6 +53,39 @@ const SEL_GRID_TILE = '[class*="imageCard_imageCard"]';
 const SEL_GRID_QTY = '[class*="cornerQuantity"]';
 
 /**
+ * True if `el` is part of the deck's "Tokens & Extras" content — token/
+ * emblem/etc. prints related to cards actually in the deck, captioned "None
+ * of the tokens or extras below are actually 'in your deck'" (Archidekt's
+ * own tooltip). None of them are cards the player would buy, so querying
+ * LigaMagic for their names only ever produces a "not found" result (they're
+ * relevant/reprint-adjacent Magic names, not necessarily buyable singles)
+ * that inflates the missing-price count and, via the pending-prices
+ * backfill, submits names to LigaMagic's deck form that were never going to
+ * resolve — see extractCardNames/applyPrices/applyDetailAndGridPrices, every
+ * one of this file's own card-reading sites.
+ *
+ * Confirmed live this is actually TWO separate widgets Archidekt renders
+ * under that one heading, not one: (1) the "stack" list entry (id
+ * `stack_Tokens & Extras`) — a normal deck-list row/tile like any other
+ * category's, but only for whichever tokens the user (or Archidekt) has
+ * actually added as a line item; and (2) a standalone preview grid
+ * (`tokenContainer_container`) that separately shows EVERY token/emblem the
+ * deck's cards CAN produce, matching the "(N)" count next to the section's
+ * own <h2> — on a real deck this held 10 entries while the stack list held
+ * only 1, so relying on the stack check alone (this function's original,
+ * incomplete version) left 9 of them still being queried/counted as
+ * missing. Both need checking; a card could in principle appear in only one
+ * of the two.
+ */
+function isInTokensAndExtrasStack(el) {
+  if (!el) return false;
+  if (el.closest('[id="stack_Tokens & Extras"]')) return true;
+  if (el.closest('[class*="tokenContainer_container"]')) return true;
+  const stack = el.closest('[class*="stackWrapper_container"]');
+  return stack?.querySelector('[class*="stackHeader_title"]')?.textContent?.trim() === "Tokens & Extras";
+}
+
+/**
  * Every card in `root`, as {name, qty}, regardless of which view is
  * rendering it — the text view's rows when they're present, the grid's tiles
  * otherwise. The group and deck totals both need this: written against the
@@ -144,6 +177,7 @@ function cardNameFromNamebox(el) {
 function extractCardNames() {
   const names = new Set();
   document.querySelectorAll(SEL_CARD_BUTTON).forEach((btn) => {
+    if (isInTokensAndExtrasStack(btn)) return;
     const name = cardNameOf(btn);
     if (name) names.add(name);
   });
@@ -152,6 +186,7 @@ function extractCardNames() {
   // never fires for either surface and applyDetailAndGridPrices() below has
   // nothing to inject.
   document.querySelectorAll(SEL_CARD_NAMEBOX).forEach((box) => {
+    if (isInTokensAndExtrasStack(box)) return;
     const name = cardNameFromNamebox(box);
     if (name) names.add(name);
   });
@@ -168,6 +203,10 @@ function applyPrices(priceMap, openLigaMagicOnClick = true) {
   document.querySelectorAll(SEL_PRICE_LINK).forEach((linkEl) => {
     // Skip already-processed elements (handles partial re-renders).
     if (linkEl.hasAttribute(PROCESSED_ATTR)) return;
+    // Tokens/extras were never queried (see extractCardNames) — leave
+    // Archidekt's own native USD price link exactly as it is instead of
+    // replacing it with a LigaMagic price we never looked up.
+    if (isInTokensAndExtrasStack(linkEl)) return;
 
     // Walk up to the card row to find the card name.
     const row = linkEl.closest(SEL_CARD_ROW);
@@ -273,6 +312,12 @@ function buildLigaMagicPricePill(name, info, openLigaMagicOnClick) {
 function applyDetailAndGridPrices(priceMap, openLigaMagicOnClick = true) {
   let injected = 0;
   document.querySelectorAll(SEL_PRICE_ROW).forEach((row) => {
+    // Tokens/extras were never queried (see extractCardNames) — no pill to
+    // add here, same reasoning as applyPrices() skipping these for the text
+    // view. Checked before the root lookup below since the grid tile IS the
+    // root for this case, and this is cheaper than that lookup anyway.
+    if (isInTokensAndExtrasStack(row)) return;
+
     const root = row.closest(SEL_PRICE_ROW_CARD_ROOT);
     if (!root) {
       logNotShown(
@@ -334,6 +379,27 @@ function updateGroupTotals(priceMap) {
   const SEL_STACK = '[class*="stackWrapper_container"]';
 
   document.querySelectorAll(SEL_STACK).forEach((stack) => {
+    // Tokens/extras were never queried (see extractCardNames), so this
+    // stack's own subtotal would always read !hasAnyPrice below and hit the
+    // early return anyway — except a version of this extension prior to
+    // that exclusion could have written a real BRL total into this exact
+    // span already, which would otherwise sit there stale (still "R$ 0,75"
+    // for a card no longer priced at all) instead of ever getting reverted,
+    // since the code below only ever adds or replaces a total, never clears
+    // one — so this stack gets its own explicit revert-to-native pass
+    // instead of just relying on the early return.
+    const titleEl = stack.querySelector('[class*="stackHeader_title"]');
+    if (titleEl?.textContent?.trim() === "Tokens & Extras") {
+      const totalSpan = stack.querySelector('[class*="stackHeader_meta"] span[title]');
+      const original = totalSpan?.getAttribute("data-lm-original");
+      if (original) {
+        totalSpan.title = original;
+        totalSpan.textContent = original;
+        totalSpan.removeAttribute("data-lm-original");
+      }
+      return;
+    }
+
     let total = 0;
     let hasAnyPrice = false;
 
@@ -384,10 +450,12 @@ const DECK_TOTAL_BRL_CLASS = "lm-ext-deck-total-brl";
 
 /**
  * Sums qty × priceMin for every card in the entire deck (all groups except
- * "Maybeboard") and shows it as its own green span next to Archidekt's own
- * "Est cost: $X" trigger button, the same way updateGroupTotals adds one per
- * group — appended alongside the existing content rather than overwriting
- * it, so Archidekt's own price and label stay exactly as they are.
+ * "Maybeboard" and "Tokens & Extras" — neither is actually in the deck, per
+ * Archidekt's own tooltip on the latter) and shows it as its own green span
+ * next to Archidekt's own "Est cost: $X" trigger button, the same way
+ * updateGroupTotals adds one per group — appended alongside the existing
+ * content rather than overwriting it, so Archidekt's own price and label
+ * stay exactly as they are.
  */
 function updateDeckTotal(priceMap) {
   const SEL_STACK = '[class*="stackWrapper_container"]';
@@ -398,7 +466,8 @@ function updateDeckTotal(priceMap) {
 
   document.querySelectorAll(SEL_STACK).forEach((stack) => {
     const titleEl = stack.querySelector(SEL_STACK_TITLE);
-    if (titleEl?.textContent?.trim() === "Maybeboard") return;
+    const stackName = titleEl?.textContent?.trim();
+    if (stackName === "Maybeboard" || stackName === "Tokens & Extras") return;
 
     cardEntriesIn(stack).forEach(({ name, qty }) => {
       const info = priceMap[name];

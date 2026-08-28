@@ -130,7 +130,12 @@ function logPriceMap(log, priceMap, allNames) {
 function queryPrices(log, names, callback) {
   chrome.runtime.sendMessage({ action: "queryPrices", cards: names }, (response) => {
     if (chrome.runtime.lastError) {
-      log("Background error:", chrome.runtime.lastError.message);
+      // Falling back to an empty price map here means every one of `names`
+      // reads as "no price in DB" downstream (applyPrices/applyGridPrices),
+      // indistinguishable in their own per-card logs from a genuine cache
+      // miss — logging the names and count here is what tells them apart
+      // when reading the trace top to bottom.
+      log(`Background error querying ${names.length} card(s) [${names.join(", ")}]:`, chrome.runtime.lastError.message);
       callback({});
       return;
     }
@@ -242,7 +247,7 @@ function getViewedDeckName() {
   return document.querySelector("h1")?.textContent?.trim() || null;
 }
 
-function createPendingPricesWrapper(mountAfter, toolbarGap, btnPadding, btnBorderRadius, btnHeight, fullWidthRow) {
+function createPendingPricesWrapper(mountAfter, toolbarGap, btnPadding, btnBorderRadius, btnHeight, fullWidthRow, appendTo, wrapperClassName) {
   const wrapper = document.createElement("div");
   wrapper.id = PENDING_PRICES_WRAPPER_ID;
   Object.assign(wrapper.style, {
@@ -283,11 +288,28 @@ function createPendingPricesWrapper(mountAfter, toolbarGap, btnPadding, btnBorde
   // `position: absolute`, the message never painted at all on Scryfall, no
   // matter the z-index.
   const msg = getOrCreatePendingPricesMessage();
-  msg.dataset.alignRight = mountAfter ? "0" : "1";
+  msg.dataset.alignRight = mountAfter || appendTo ? "0" : "1";
 
   wrapper.appendChild(btn);
 
-  if (mountAfter && fullWidthRow) {
+  if (appendTo) {
+    // A true flex sibling appended as the LAST item of the host's own
+    // toolbar row (Moxfield's deck-page toolbar — Playtest/Buy Deck/
+    // Download/…/More), rather than a separately positioned box mounted
+    // after that row (see the mountAfter branches below). appendChild also
+    // relocates the wrapper here if it's already mounted elsewhere in the
+    // DOM, so the exact same call both mounts it the first time and
+    // re-mounts it after a React re-render tears the row down and rebuilds
+    // it, with no separate "already there" branch needed and no risk of a
+    // duplicate. `wrapperClassName`, when given, reuses the row's own
+    // spacing utility class (see its own call-site comment) — the row-level
+    // vertical alignment (every item centered against the tallest one,
+    // this button included) is the caller's job, not this wrapper's own
+    // (see the call site's alignItems comment), since it has to apply to
+    // the row's other, pre-existing items too, not just this one.
+    if (wrapperClassName) wrapper.className = wrapperClassName;
+    appendTo.appendChild(wrapper);
+  } else if (mountAfter && fullWidthRow) {
     // Moxfield's toolbar row (.row.justify-content-between... with
     // flex-wrap) doesn't give this wrapper a row of its own to sit in --
     // whether it lands at the end of the existing line or wraps onto a new
@@ -497,6 +519,28 @@ function buildPendingPricesResultMessage(total, failedNames) {
  *   onto its own centered line instead of sitting inline after `mountAfter`,
  *   for a toolbar row that wraps (Moxfield's) where relying on it happening
  *   to wrap in the right place isn't reliable (see createPendingPricesWrapper).
+ * @param {HTMLElement} [opts.appendTo] alternative to `mountAfter` — append
+ *   the button as a true flex sibling at the END of this row (e.g. Moxfield's
+ *   toolbar row, after its native "More" entry), instead of positioned
+ *   relative to some anchor (`mountAfter`'s two modes). Use this when the
+ *   button needs to sit inline as one more item of an existing flex row.
+ *   Also doubles as the re-mount call after a React re-render tears the row
+ *   down and rebuilds it — appendChild relocates an already-mounted wrapper
+ *   rather than duplicating it, so the caller can call this again with no
+ *   special "already there" case of its own. Ignored if `mountAfter` is also
+ *   given. The row's own vertical alignment (e.g. `alignItems: center`, if
+ *   this button is taller than the row's other, pre-existing items) is the
+ *   caller's job — it needs to apply to those other items too, not just this
+ *   wrapper.
+ * @param {string} [opts.wrapperClassName] only with `appendTo` — a class name
+ *   to apply to the button's own wrapper, reusing whatever spacing utility
+ *   class the host's own toolbar items already use between each other (e.g.
+ *   Moxfield's Bootstrap-derived "me-5") instead of a hand-picked margin, so
+ *   the gap keeps matching automatically if that class's value ever changes.
+ *   Omit when this wrapper is the row's new last item and the row's spacing
+ *   convention puts the gap on the PRECEDING item instead (Moxfield: the
+ *   caller adds the class to the former-last item itself rather than passing
+ *   it here — see that call site).
  * @param {() => boolean} [opts.checkPriceColumnEnabled] site-specific check
  *   run at click time, before anything else — if it returns false, a red
  *   error is shown instead of starting the backfill (the missing prices are
@@ -517,6 +561,8 @@ function renderPendingPricesButton({
   btnBorderRadius,
   btnHeight,
   fullWidthRow,
+  appendTo,
+  wrapperClassName,
   checkPriceColumnEnabled,
   priceColumnHelp,
 }) {
@@ -545,7 +591,7 @@ function renderPendingPricesButton({
   // that also keeps a just-shown message from being yanked away by the next
   // unrelated re-render before its own timeout clears it.
   if (!existing) {
-    if (!mountAfter && missingNames.length === 0) {
+    if (!mountAfter && !appendTo && missingNames.length === 0) {
       logNotShown(
         site,
         "Carregar preços pendentes",
@@ -553,11 +599,19 @@ function renderPendingPricesButton({
       );
       return;
     }
-    // A null mountAfter here isn't necessarily wrong — Scryfall floats by
-    // design when it has no anchor to use — so whether that's expected or a
-    // real failure is judged where the anchor is looked up (findToolbarAnchor
-    // in Moxfield/Archidekt, waitForFilterControls in Scryfall), not here.
-    existing = createPendingPricesWrapper(mountAfter, toolbarGap, btnPadding, btnBorderRadius, btnHeight, fullWidthRow).wrapper;
+    // A null mountAfter/appendTo here isn't necessarily wrong — Scryfall
+    // floats by design when it has no anchor to use — so whether that's
+    // expected or a real failure is judged where the anchor is looked up
+    // (findMoreButtonAnchor in Moxfield, findToolbarAnchor in Archidekt,
+    // waitForFilterControls in Scryfall), not here.
+    existing = createPendingPricesWrapper(mountAfter, toolbarGap, btnPadding, btnBorderRadius, btnHeight, fullWidthRow, appendTo, wrapperClassName).wrapper;
+  } else if (appendTo) {
+    // Already mounted (e.g. from the previous run()) but the toolbar row
+    // itself may have been rebuilt since — relocate it back to the end of
+    // the CURRENT row, exactly like a fresh mount would, in case appendTo
+    // now points at a different (freshly re-rendered) row element than the
+    // one this wrapper is still sitting in.
+    appendTo.appendChild(existing);
   }
 
   const btn = existing.querySelector(`#${PENDING_PRICES_BTN_ID}`);
@@ -569,11 +623,18 @@ function renderPendingPricesButton({
     missingNames.length > 0
       ? `Carregar preços pendentes (${missingNames.length})`
       : "Carregar preços pendentes";
+  log(
+    missingNames.length > 0
+      ? `Botão "Carregar preços pendentes" exibido para ${missingNames.length} carta(s) sem preço no cache: ${missingNames.join(", ")}`
+      : `Botão "Carregar preços pendentes" exibido, sem cartas pendentes no momento`,
+  );
 
   btn.onclick = () => {
+    log(`"Carregar preços pendentes" clicado — ${missingNames.length} carta(s): ${missingNames.join(", ")}`);
     setPendingPricesMessage(msg, null);
 
     if (checkPriceColumnEnabled && !checkPriceColumnEnabled()) {
+      log(`Cancelado: checkPriceColumnEnabled() retornou false (coluna de preço desabilitada em ${site}).`);
       setPendingPricesMessage(
         msg,
         `Erro: Coluna de preços não habilitada.${priceColumnHelp ? ` ${priceColumnHelp}` : ""}`,
@@ -583,6 +644,7 @@ function renderPendingPricesButton({
     }
 
     if (missingNames.length === 0) {
+      log("Cancelado: nenhuma carta pendente no momento do clique.");
       setPendingPricesMessage(msg, "Todos os preços já foram carregados.", "success");
       return;
     }
@@ -604,6 +666,7 @@ function renderPendingPricesButton({
     // now); they only matter here for spotting the final one.
     const listener = (m) => {
       if (m.action !== "pendingPricesProgress") return;
+      log(`Progresso recebido do background: ${m.done}/${m.total} concluído${m.loggedOut ? " (sessão deslogada)" : ""}, ${m.failedNames?.length ?? 0} falha(s) até agora: ${(m.failedNames ?? []).join(", ")}`);
       if (m.done < m.total) return;
       chrome.runtime.onMessage.removeListener(listener);
       pendingPricesState = null;
@@ -611,6 +674,16 @@ function renderPendingPricesButton({
 
       const liveMsg = document.getElementById(PENDING_PRICES_MSG_ID);
       const liveBtn = document.getElementById(PENDING_PRICES_BTN_ID);
+      // Distinct from applyPrices/applyGridPrices' own "no price in DB" trace
+      // (a plain local-cache miss, logged before this backfill ever ran and
+      // not proof either way of whether LigaMagic actually carries the
+      // card) — this fires only once the batch's own form submission is done,
+      // so it's the real, confirmed answer: LigaMagic's own validation
+      // rejected this exact name after every front-face/back-face
+      // substitution retry (see scrapeBatchViaManagedDeck in background.js).
+      if (!m.loggedOut) {
+        (m.failedNames ?? []).forEach((n) => log(`Preço não encontrado para "${n}" no LigaMagic.`));
+      }
       // A signed-out session (see pageIsLoggedOut in background.js) isn't a
       // "cards not found" result — none of them were ever actually looked
       // up — so it gets its own message instead of going through
@@ -618,6 +691,7 @@ function renderPendingPricesButton({
       const { text, kind } = m.loggedOut
         ? { text: "Você não está logado no LigaMagic — faça login e tente de novo.", kind: "error" }
         : buildPendingPricesResultMessage(m.total, m.failedNames ?? []);
+      log(`Backfill concluído — resultado exibido ao usuário: "${text}"`);
       setPendingPricesMessage(liveMsg, text, kind, liveBtn);
       const messageDurationMs = kind === "success" ? PENDING_PRICES_SUCCESS_MESSAGE_MS : PENDING_PRICES_RESULT_MESSAGE_MS;
       setTimeout(() => {
@@ -630,6 +704,7 @@ function renderPendingPricesButton({
     };
     chrome.runtime.onMessage.addListener(listener);
 
+    log(`Enviando "loadPendingPrices" ao background para ${missingNames.length} carta(s).`);
     chrome.runtime.sendMessage({ action: "loadPendingPrices", cards: missingNames, contextName }, () => {
       if (chrome.runtime.lastError) log("Background error:", chrome.runtime.lastError.message);
     });

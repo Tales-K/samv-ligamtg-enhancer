@@ -93,6 +93,10 @@ página individual da carta
 - Botão "Carregar preços pendentes" — busca no LigaMagic o preço de toda carta
   que ainda não tem um valor em BRL
 - Clique no preço abre a página da carta no LigaMagic (opcional)
+- Cartas da seção "Tokens & Extras" do deck (tokens, emblemas etc. que o
+  próprio Archidekt gera e que não fazem parte do deck de fato) ficam de fora
+  de tudo isso — não entram no contador de preços pendentes, no total do
+  deck/grupo, nem são enviadas ao LigaMagic
 
 ## Moxfield (moxfield.com)
 - Overlay de preço — substitui o preço em USD por preço em BRL do LigaMagic,

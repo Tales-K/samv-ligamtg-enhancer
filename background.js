@@ -346,9 +346,9 @@ async function handleSendPrices(cards) {
     // query happens to punctuate the back face — still finds it via
     // handleQueryPrices' own front-face fallback, without needing to guess or
     // reproduce LigaMagic's exact punctuation.
-    const separatorIdx = c.name.indexOf(" // ");
-    if (separatorIdx > 0) {
-      cache.prices[priceCacheKey(c.name.slice(0, separatorIdx))] = entry;
+    const split = splitFrontBack(c.name);
+    if (split) {
+      cache.prices[priceCacheKey(split.front)] = entry;
     }
   });
   stats.totalUpdates += newCards.length;
@@ -359,6 +359,23 @@ async function handleSendPrices(cards) {
     newCount: newCards.length,
     message: `${newCards.length} card(s) saved locally.`,
   };
+}
+
+/**
+ * Splits a combined "Front // Back" card name — a transform/MDFC/split card,
+ * however Archidekt/Moxfield/Scryfall happen to hand it over — into its two
+ * faces. Returns null for a name with no such separator. The one place this
+ * file knows how to recognize/split that punctuation; every step of the
+ * price pipeline that needs a face alone (indexing a fresh scrape under its
+ * front face too, falling back to a cached front/back face on a query miss,
+ * substituting a face LigaMagic's own deck-form validation rejected the
+ * combined name for) goes through this instead of re-deriving it locally —
+ * see each call site's own comment for why that particular step needs it.
+ */
+function splitFrontBack(name) {
+  const separatorIdx = name.indexOf(" // ");
+  if (separatorIdx <= 0) return null;
+  return { front: name.slice(0, separatorIdx).trim(), back: name.slice(separatorIdx + 4).trim() };
 }
 
 // The 5 basic land types have no real LigaMagic listing worth tracking —
@@ -418,9 +435,9 @@ async function handleQueryPrices(names) {
     // comments in overlay-moxfield.js). If the front face alone is already
     // priced — from that retry, or from ordinary browsing — it's the same
     // physical card, so it still answers a query for the combined name.
-    const separatorIdx = n.indexOf(" // ");
-    if (separatorIdx > 0) {
-      const frontFace = cache.prices[priceCacheKey(n.slice(0, separatorIdx))];
+    const split = splitFrontBack(n);
+    if (split) {
+      const frontFace = cache.prices[priceCacheKey(split.front)];
       if (frontFace) {
         prices[n] = frontFace;
         return;
@@ -431,7 +448,7 @@ async function handleQueryPrices(names) {
       // text was actually a printing's cosmetic flavor name, not a real
       // front face at all, so only the card's real oracle name — read off
       // the slug as the "back face" — was ever a valid card to query for).
-      const backFace = cache.prices[priceCacheKey(n.slice(separatorIdx + 4))];
+      const backFace = cache.prices[priceCacheKey(split.back)];
       if (backFace) prices[n] = backFace;
     }
   });
@@ -1059,6 +1076,17 @@ async function handleFetchCardTags(set, number) {
 // deleting. Either check failing falls back to creating a fresh deck and
 // overwriting the stored id, so a deck the user deleted by hand (or a
 // corrupted/foreign id) never gets treated as ours.
+// Always-on trace for the pending-prices backfill (the "Carregar preços
+// pendentes" button) — visible in the service worker's own console
+// (npm run ext:logs, or cdp-eval --sw), not gated by the showDebugLogs
+// setting like the content-script overlays are: this only ever runs when
+// the user explicitly clicked that button, and the service worker console
+// isn't something a normal user stumbles into, so there's no "keep a real
+// user's console quiet" reason to hide it behind a toggle here.
+function pendingPricesLog(...args) {
+  console.log("[LigaMagic Tracker | Pending Prices]", ...args);
+}
+
 const PENDING_PRICE_BATCH_SIZE = 100; // cards per deck edit
 const PENDING_PRICE_MIN_CARDS = 7; // LigaMagic's own minimum for a "Livre" deck
 const PENDING_PRICE_DECK_FORMAT = "22"; // "Livre (Sem formato definido)"
@@ -1124,29 +1152,42 @@ async function savePendingPricesDeck({ id, name }) {
 }
 
 async function handleLoadPendingPrices(names, originTabId, contextName) {
-  if (!Array.isArray(names) || names.length === 0) return;
+  if (!Array.isArray(names) || names.length === 0) {
+    pendingPricesLog("Called with no names — nothing to do.");
+    return;
+  }
 
   const unique = [...new Set(names)];
+  pendingPricesLog(`Starting backfill for ${unique.length} card(s) (contextName="${contextName ?? ""}"):`, unique);
   let done = 0;
   const failedNames = [];
 
   for (let i = 0; i < unique.length; i += PENDING_PRICE_BATCH_SIZE) {
     const batch = unique.slice(i, i + PENDING_PRICE_BATCH_SIZE);
+    pendingPricesLog(`Batch ${i / PENDING_PRICE_BATCH_SIZE + 1}: submitting ${batch.length} card(s) to the managed deck.`);
     try {
       // contextName only matters if this batch ends up creating the deck
       // (no valid stored one yet) — see buildTempDeckName/ensureManagedDeck.
+      // Anything the deck form itself never recognized (after its own
+      // front-face/back-face substitution retries — see
+      // scrapeBatchViaManagedDeck) is reported as failed outright, with no
+      // further per-card visit to LigaMagic. This used to open one LigaMagic
+      // tab per still-unrecognized name as a last-resort resolution attempt
+      // — removed (2026-08-27, explicit user instruction) because `dropped`
+      // is not reliably small: a single batch can list dozens of names
+      // LigaMagic will never recognize (e.g. a Scryfall grid full of
+      // digital-only Alchemy cards, which a paper-only marketplace simply
+      // doesn't carry under any face), and opening one LigaMagic page per
+      // dropped name turns that into exactly the request burst this project
+      // avoids deliberately (see "Nunca gerar rajadas de requisições" in the
+      // dev instructions) — never worth it for one extra resolution attempt.
       const { dropped } = await scrapeBatchViaManagedDeck(batch, contextName);
-      // One more attempt per name the deck form never recognized, before
-      // reporting it as failed — see resolveNameViaCardSearch. Sequential,
-      // not parallel: `dropped` is empty on the overwhelming majority of
-      // runs (nothing recognized as unusual), so there's normally nothing
-      // here at all, and on the rare run where there is, a burst of
-      // several LigaMagic page loads at once is exactly the kind of
-      // request pattern worth avoiding on their own site.
-      for (const name of dropped) {
-        const resolved = await resolveNameViaCardSearch(name);
-        if (!resolved) failedNames.push(name);
-      }
+      failedNames.push(...dropped);
+      pendingPricesLog(
+        dropped.length > 0
+          ? `Batch ${i / PENDING_PRICE_BATCH_SIZE + 1}: ${batch.length - dropped.length}/${batch.length} accepted, ${dropped.length} dropped (LigaMagic never recognized): ${dropped.join(", ")}`
+          : `Batch ${i / PENDING_PRICE_BATCH_SIZE + 1}: all ${batch.length} card(s) accepted onto the managed deck.`,
+      );
     } catch (err) {
       if (err?.loggedOut) {
         // The session is signed out — every remaining batch would fail the
@@ -1154,6 +1195,7 @@ async function handleLoadPendingPrices(names, originTabId, contextName) {
         // them first. A distinct signal rather than folding it into
         // failedNames: those cards aren't actually "not found on
         // LigaMagic", the whole attempt never got to ask.
+        pendingPricesLog("Aborting: LigaMagic session is signed out.");
         if (originTabId != null) {
           chrome.tabs
             .sendMessage(originTabId, {
@@ -1163,7 +1205,7 @@ async function handleLoadPendingPrices(names, originTabId, contextName) {
               failedNames,
               loggedOut: true,
             })
-            .catch(() => {});
+            .catch((sendErr) => pendingPricesLog("Could not send loggedOut progress message to tab:", sendErr?.message));
         }
         return;
       }
@@ -1171,6 +1213,7 @@ async function handleLoadPendingPrices(names, originTabId, contextName) {
       // scrapeBatchViaManagedDeck already handles and reports via `dropped`) —
       // best-effort: the whole batch stays missing rather than silently
       // looking "done" with nothing to show for it.
+      pendingPricesLog(`Batch ${i / PENDING_PRICE_BATCH_SIZE + 1}: unexpected error, whole batch counted as failed —`, err);
       failedNames.push(...batch);
     }
     done += batch.length;
@@ -1180,8 +1223,10 @@ async function handleLoadPendingPrices(names, originTabId, contextName) {
     // one message type is one less thing that can go missing.
     chrome.tabs
       .sendMessage(originTabId, { action: "pendingPricesProgress", done, total: unique.length, failedNames })
-      .catch(() => {}); // calling tab may have navigated away or closed — nothing to report to
+      .then(() => pendingPricesLog(`Progress message sent to tab ${originTabId}: ${done}/${unique.length} done, ${failedNames.length} failed so far.`))
+      .catch((err) => pendingPricesLog(`Could not send progress message to tab ${originTabId} (tab navigated away or closed?):`, err?.message)); // calling tab may have navigated away or closed — nothing to report to
   }
+  pendingPricesLog(`Backfill finished: ${unique.length - failedNames.length}/${unique.length} priced, ${failedNames.length} failed.`);
 }
 
 /** "1 Card A\n1 Card B\n…", padded up to the 7-card minimum by bumping the last line's quantity. */
@@ -1236,7 +1281,10 @@ async function pageIsLoggedOut(tabId) {
  */
 async function ensureManagedDeck() {
   const stored = await loadPendingPricesDeck();
-  if (!stored) return null;
+  if (!stored) {
+    pendingPricesLog("No managed deck stored yet — will create one.");
+    return null;
+  }
 
   let tab;
   try {
@@ -1261,14 +1309,19 @@ async function ensureManagedDeck() {
       args: [stored.id, stored.name, LOGIN_LINK_SELECTOR],
     });
 
-    if (result === "ok") return { tabId: tab.id, deckId: stored.id };
+    if (result === "ok") {
+      pendingPricesLog(`Reusing existing managed deck #${stored.id} ("${stored.name}").`);
+      return { tabId: tab.id, deckId: stored.id };
+    }
 
     await chrome.tabs.remove(tab.id).catch(() => {});
     if (result === "logged-out") throw newLoggedOutError();
+    pendingPricesLog(`Stored managed deck #${stored.id} no longer checks out (deleted, not owned, or renamed) — creating a new one.`);
     return null;
   } catch (err) {
     if (tab) await chrome.tabs.remove(tab.id).catch(() => {});
     if (err?.loggedOut) throw err;
+    pendingPricesLog(`Could not verify stored managed deck #${stored.id} — creating a new one instead. Error:`, err);
     return null;
   }
 }
@@ -1341,6 +1394,7 @@ async function scrapeBatchViaManagedDeck(names, contextName) {
     }
 
     for (let round = 0; currentNames.length > 0 && round <= PENDING_PRICE_MAX_INVALID_ROUNDS; round++) {
+      pendingPricesLog(`Round ${round}: submitting ${currentNames.length} name(s) to the ${isNew ? "create" : "edit"} form:`, currentNames);
       if (isNew) {
         await fillAndSubmitCreateForm(tabId, currentNames, deckName);
       } else {
@@ -1349,6 +1403,7 @@ async function scrapeBatchViaManagedDeck(names, contextName) {
       const outcome = await waitForDeckPageOrInvalidLines(tabId, PENDING_PRICE_TAB_TIMEOUT_MS);
 
       if (outcome.deckId) {
+        pendingPricesLog(`Round ${round}: LigaMagic accepted the whole list — deck #${outcome.deckId}. Waiting ${PENDING_PRICE_SCRAPE_SETTLE_MS}ms for scraper-deck.js to read the prices off the page.`);
         if (isNew) await savePendingPricesDeck({ id: outcome.deckId, name: deckName });
 
         // scraper-deck.js runs automatically as soon as the deck page's card
@@ -1358,6 +1413,7 @@ async function scrapeBatchViaManagedDeck(names, contextName) {
       }
 
       if (outcome.invalidLineIndexes?.length) {
+        pendingPricesLog(`Round ${round}: LigaMagic flagged ${outcome.invalidLineIndexes.length}/${currentNames.length} line(s) as unrecognized:`, outcome.invalidLineIndexes.map((i) => currentNames[i]));
         // Same line order as the decklist text this round submitted
         // (buildDecklistText emits exactly one line per name), so the
         // indexes map straight back onto currentNames.
@@ -1372,17 +1428,17 @@ async function scrapeBatchViaManagedDeck(names, contextName) {
             // First time this name has been flagged — if it's a combined
             // "Front // Back" name, give the front face its own shot before
             // giving up on it.
-            const separatorIdx = flaggedName.indexOf(" // ");
-            const frontFace = separatorIdx > 0 ? flaggedName.slice(0, separatorIdx).trim() : "";
-            if (frontFace && frontFace !== flaggedName) {
-              const backFace = flaggedName.slice(separatorIdx + 4).trim();
-              substitutionOf.set(frontFace, { original, stage: "front", backFace });
-              retryNames.push(frontFace);
+            const split = splitFrontBack(flaggedName);
+            if (split) {
+              pendingPricesLog(`  "${flaggedName}" rejected — retrying with just the front face "${split.front}".`);
+              substitutionOf.set(split.front, { original, stage: "front", backFace: split.back });
+              retryNames.push(split.front);
               return;
             }
           } else if (existing.stage === "front" && existing.backFace && existing.backFace !== flaggedName) {
             // The front face didn't work either — try the back face alone
             // before giving up (the "Luca Stadium" case above).
+            pendingPricesLog(`  "${flaggedName}" (front face of "${original}") also rejected — retrying with the back face "${existing.backFace}".`);
             substitutionOf.set(existing.backFace, { original, stage: "back" });
             retryNames.push(existing.backFace);
             return;
@@ -1391,6 +1447,7 @@ async function scrapeBatchViaManagedDeck(names, contextName) {
           // Either there was never a "//" to fall back on, or every face
           // this card has has already been tried — genuinely unrecognized.
           // Report it under the name the caller actually asked about.
+          pendingPricesLog(`  "${flaggedName}" — giving up, reporting "${original}" as not found on LigaMagic.`);
           droppedNames.push(original);
         });
         currentNames = currentNames
@@ -1403,6 +1460,7 @@ async function scrapeBatchViaManagedDeck(names, contextName) {
       // signal within the timeout — an unexplained failure, not the
       // invalid-card case this function otherwise handles. Give up on
       // whatever's left rather than retrying blindly.
+      pendingPricesLog(`Round ${round}: timed out after ${PENDING_PRICE_TAB_TIMEOUT_MS}ms with neither a deck page nor a readable "unrecognized cards" modal — giving up on the remaining ${currentNames.length} name(s). Current tab URL may help diagnose this — check tab ${tabId} live.`);
       break;
     }
 
@@ -1412,81 +1470,10 @@ async function scrapeBatchViaManagedDeck(names, contextName) {
     // currentNames ever made it onto the deck this round. Reported under the
     // original combined name for anything that was a face substitute.
     droppedNames.push(...currentNames.map((n) => substitutionOf.get(n)?.original ?? n));
+    pendingPricesLog(`scrapeBatchViaManagedDeck finished: ${droppedNames.length} dropped out of ${names.length} requested.`, droppedNames);
     return { dropped: droppedNames };
   } finally {
     chrome.tabs.remove(tabId).catch(() => {});
-  }
-}
-
-/**
- * Last-resort fallback for a name scrapeBatchViaManagedDeck's own retry
- * ladder never got onto the deck (droppedNames) — visits LigaMagic's own
- * card-search page for the bare name and lets the site's own
- * single-match-vs-many-matches behavior decide the outcome, rather than
- * guessing one:
- *   - Exactly one match: content.js's scrapeCardPage() runs automatically
- *     (the same way it would for any real visit to that page) and caches
- *     the price under the page's own resolved name.
- *   - No match, or more than one: lands on a results list instead of a
- *     card page. This is the common outcome for a token -- LigaMagic
- *     disambiguates same-named token prints with its own internal index
- *     ("City's Blessing (#49)") that has no relation to any collector
- *     number Archidekt/Moxfield/Scryfall carry for the same token, so
- *     nothing here can tell which listed variant is the right one.
- *     scrapeCardPage() already no-ops on that page (no .item-name-en/
- *     .item-name element there, confirmed live against both a real
- *     single-match card and a real ambiguous token search) -- nothing
- *     gets cached, same as an outright unrecognized name.
- *
- * Reads the page's resolved name (rather than diffing the cache before/
- * after) to tell the two cases apart, so a card that already had today's
- * price cached under its own name -- meaning scrapeCardPage() itself skips
- * writing anything, per its own "already scraped today" check -- doesn't
- * get misread as unresolved just because nothing new appeared.
- *
- * Because that automatic scrape caches under the PAGE's resolved name (e.g.
- * "City's Blessing (#49)"), not the name this was called with (e.g. plain
- * "City's Blessing"), a second cache entry is written under the original
- * name too -- otherwise a caller asking for the original name would still
- * find nothing despite the price now sitting in the cache under a
- * different key.
- *
- * @returns {Promise<boolean>} whether `name` now has a price in the cache.
- */
-async function resolveNameViaCardSearch(name) {
-  const tab = await chrome.tabs.create({
-    url: `https://www.ligamagic.com.br/?view=cards/card&card=${encodeURIComponent(name)}`,
-    active: false,
-  });
-  try {
-    await waitForTabComplete(tab.id, PENDING_PRICE_TAB_TIMEOUT_MS);
-    // scraper-deck.js/scraper-card.js run automatically as soon as their
-    // page's own content is in the DOM — same settle time
-    // scrapeBatchViaManagedDeck already gives that scrape elsewhere.
-    await new Promise((r) => setTimeout(r, PENDING_PRICE_SCRAPE_SETTLE_MS));
-
-    const [{ result: resolvedName }] = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: () => document.querySelector(".item-name-en")?.textContent?.trim() ?? null,
-    });
-    if (!resolvedName) return false;
-
-    const cache = await loadPriceCache();
-    const resolvedKey = priceCacheKey(resolvedName);
-    const resolvedEntry = cache.prices[resolvedKey];
-    // The page resolved to one card, but scrapeCardPage() itself found no
-    // price for it (a marketplace filter left on, or genuinely no listing)
-    // — nothing to copy forward.
-    if (!resolvedEntry) return false;
-
-    const originalKey = priceCacheKey(name);
-    if (originalKey !== resolvedKey) {
-      cache.prices[originalKey] = { ...resolvedEntry, name };
-      await savePriceCache(cache);
-    }
-    return true;
-  } finally {
-    await chrome.tabs.remove(tab.id).catch(() => {});
   }
 }
 
@@ -1496,8 +1483,15 @@ async function fillAndSubmitCreateForm(tabId, names, deckName) {
     target: { tabId },
     func: (decklist, formatValue, name) => {
       // Close any "Preenchimento inválido" modal left over from a previous
-      // round so it doesn't stack on top of the next one.
+      // round so it doesn't stack on top of the next one. The modal's close
+      // button only hides it, though -- #lst-error-dk (the actual line
+      // markers readInvalidDeckListLines reads) stays in the DOM, so it's
+      // removed here too: without this, a poll landing between this submit
+      // and the new round's own response arriving would read last round's
+      // markers against this round's (differently sized/ordered) decklist,
+      // misattributing "invalid" to the wrong lines entirely.
       document.querySelector(".close-modal")?.click();
+      document.getElementById("lst-error-dk")?.remove();
 
       const form = document.getElementById("formNewDeck");
       if (!form) return;
@@ -1526,7 +1520,10 @@ async function fillAndSubmitEditForm(tabId, names) {
   await chrome.scripting.executeScript({
     target: { tabId },
     func: (decklist) => {
+      // See fillAndSubmitCreateForm's identical comment above -- same stale-
+      // marker race applies to the edit form.
       document.querySelector(".close-modal")?.click();
+      document.getElementById("lst-error-dk")?.remove();
 
       const form = document.getElementById("formNewDeck");
       if (!form) return;
@@ -1585,7 +1582,11 @@ async function waitForDeckPageOrInvalidLines(tabId, timeoutMs) {
  * and unrecognized card names. Returns 0-based line indexes (mapping 1:1
  * onto the names array a round submitted, since buildDecklistText emits
  * exactly one line per name), or null when the marker isn't present yet or
- * nothing was flagged.
+ * nothing was flagged. Relies on fillAndSubmitCreateForm/fillAndSubmitEditForm
+ * removing `#lst-error-dk` before every resubmit -- without that, a poll
+ * landing before a later round's own response arrives would read a stale
+ * marker set left over from an earlier round instead of null, misattributing
+ * "invalid" against that round's differently sized/ordered decklist.
  */
 async function readInvalidDeckListLines(tabId) {
   try {
@@ -1761,6 +1762,24 @@ function saveSettings(partial) {
   return settingsWrites;
 }
 
+// A handful of real card names use a Latin ligature LigaMagic's own catalogue
+// keeps as a single character (its href-encoded card name — see
+// cardNameFromHref in content-utils.js — decodes to the literal "Æ"/"Œ"
+// glyph), while Scryfall/Archidekt/Moxfield spell the same name out as two
+// plain ASCII letters (confirmed live: LigaMagic's own deck-page href for
+// "Aetherize" decodes to "Ætherize", U+00C6 — a query for the Scryfall
+// spelling landed on a real, already-cached price under the wrong key and
+// read as "not found"). Expanded before case-folding so either spelling
+// collapses onto the same key.
+const LIGATURE_EXPANSIONS = { æ: "ae", œ: "oe" };
+
+function expandLigatures(name) {
+  return name.replace(/[æœ]/gi, (ch) => {
+    const expanded = LIGATURE_EXPANSIONS[ch.toLowerCase()];
+    return ch === ch.toUpperCase() ? expanded.toUpperCase() : expanded;
+  });
+}
+
 // Price cache — keyed by a case-insensitive normalization of the card name
 // (see priceCacheKey), not the raw string. LigaMagic's own href-encoded card
 // names (read by cardNameFromHref in content-utils.js, off whatever page
@@ -1776,7 +1795,7 @@ function saveSettings(partial) {
 // "sent today" list is a separate, exact-cased structure — see
 // stats.todayCards in handleSendPrices).
 function priceCacheKey(name) {
-  return name.trim().toLowerCase();
+  return expandLigatures(name.trim()).toLowerCase();
 }
 
 // Every entry ever scraped is kept indefinitely — priceColor() in

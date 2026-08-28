@@ -198,31 +198,74 @@ function cardNameFromLink(link) {
 }
 
 /**
- * Anchor for the pending-prices button: right after the "More" entry in the
- * deck's top toolbar (Primer / Playtest / Bulk Edit / Buy Deck / … / More —
- * which of those precede "More" varies with the viewer's permissions, so
- * #subheader-more itself, not any of them, is the one stable landmark).
+ * Anchor for the pending-prices button: the deck's top toolbar (Primer /
+ * Playtest / Bulk Edit / Buy Deck / Download / … / More — which of those
+ * precede "More" varies with the viewer's permissions, so #subheader-more
+ * itself, not any of them, is the one stable landmark) and the "More" link's
+ * own wrapper within it — the button is appended as the row's new LAST item,
+ * right after "More" (see appendTo in renderPendingPricesButton/
+ * createPendingPricesWrapper and prepareToolbarRow below), reading as the
+ * same line as Playtest/Buy Deck/Download/More instead of a separately
+ * positioned box relative to it.
+ *
+ * `.col-auto.d-flex` is Moxfield's own class for that row today; if a future
+ * build renames it, `moreWrapper`'s own parent is still that row in
+ * practice (the toolbar has no other flex wrapper between the two), so
+ * that's the fallback rather than failing outright on a class-name rename
+ * alone.
  */
-function findToolbarAnchor() {
-  return document.getElementById("subheader-more")?.parentElement ?? null;
+function findMoreButtonAnchor() {
+  const moreBtn = document.getElementById("subheader-more");
+  if (!moreBtn) return null;
+  const moreWrapper = moreBtn.parentElement;
+  const flexRow = moreBtn.closest(".col-auto.d-flex") ?? moreWrapper?.parentElement ?? null;
+  if (!moreWrapper || !flexRow) return null;
+  return { moreWrapper, flexRow };
 }
 
 /**
- * Anchor for the pending-prices button's own centered row (see fullWidthRow
- * in renderPendingPricesButton/createPendingPricesWrapper) — the whole
- * `.row.justify-content-between...` toolbar, not the narrow `.col-auto`
- * column findToolbarAnchor() above points at.
+ * Two adjustments the row needs once our button becomes its new last item,
+ * confirmed live (a first version without these landed the button in the
+ * right slot but visibly lower than its siblings and with no gap before
+ * it): (1) "More" was the row's last item and so carries no trailing
+ * spacing class of its own — now that our button sits after it, "More"
+ * needs the same "me-5" spacing every other item already uses between
+ * itself and the next one, or the two buttons touch. (2) the row has no
+ * explicit `align-items` (resolves to the flexbox default, stretch); that's
+ * invisible while every item is similar-height inline text, but this
+ * button is a real `<button>` with its own padding, taller than its
+ * siblings, so it needs the row centered on its tallest item instead —
+ * applied as an inline style on this specific row element, not on the
+ * shared "col-auto d-flex" class itself, which Moxfield reuses elsewhere on
+ * the page for rows that don't have this problem.
  *
- * That column is only as wide as its own buttons (confirmed live: 651px
- * against the toolbar's real 1552px on a public deck view with no Primer/
- * Bulk Edit button), so a "width: 100%, centered" wrapper mounted inside it
- * centers against that narrow column instead of the toolbar a viewer
- * actually sees — visibly off-center, not fixed by fullWidthRow alone.
- * Mounting after the row itself (a sibling under its own parent) instead
- * gives that wrapper the container's real full width to center against.
+ * Idempotent (classList.add/setting the same style twice is a no-op) —
+ * safe to call on every run(), including the re-run after a React
+ * re-render rebuilds "More" and the row from scratch without either of
+ * these.
  */
-function findToolbarRow() {
-  return findToolbarAnchor()?.closest(".row") ?? null;
+function prepareToolbarRow({ moreWrapper, flexRow }) {
+  moreWrapper.classList.add("me-5");
+  flexRow.style.alignItems = "center";
+}
+
+/**
+ * True once the pending-prices button is missing from the toolbar row it
+ * belongs in right now (including "toolbar not on the page at all" —
+ * nothing to reinsert then, so this reads as false, not "missing"). Moxfield
+ * is a React SPA: a toolbar re-render (tab switch, its own price refresh,
+ * navigation) can tear the button's wrapper out of the DOM without touching
+ * a single card row, so the card-row-scoped checks in the observeAndRerun
+ * predicate below wouldn't catch it on their own — this is the cheap check
+ * that lets the same predicate also notice a vanished toolbar button and
+ * trigger a re-run to reinsert it, without needing a second dedicated
+ * observer just for this (see the predicate's own comment).
+ */
+function isPendingPricesButtonMissing() {
+  const anchor = findMoreButtonAnchor();
+  if (!anchor) return false;
+  const wrapper = document.getElementById(PENDING_PRICES_WRAPPER_ID);
+  return !wrapper || !anchor.flexRow.contains(wrapper);
 }
 
 const MOXFIELD_PRICE_COLUMN_HELP =
@@ -916,26 +959,20 @@ function run() {
         },
         log,
         contextName: getViewedDeckName(),
-        // The narrow .col-auto column findToolbarAnchor() points at doesn't
-        // reserve a spot for this button — whether it lands at the end of
-        // the existing line or wraps depends on how many native buttons
-        // happen to be present (Primer only shows when the deck has primer
-        // text; Bulk Edit only for the owner), so it was never actually
-        // centered on purpose either way. fullWidthRow + mounting after the
-        // whole row (not just that column — see findToolbarRow) gives it a
-        // deterministic, correctly-centered line of its own instead,
-        // identical regardless of which native buttons are present —
-        // confirmed live both with and without Primer/Bulk Edit visible, at
-        // a wide desktop width and a narrower ~1280px one.
-        mountAfter: findToolbarRow(),
-        fullWidthRow: true,
-        // Matches the height of the "Find and add cards..." search field
-        // beside it (33.5px, off 5.25px/10.5px padding + 21px line-height/
-        // 14px font) — landing on the same value by padding alone since the
-        // two controls don't share a font size to reverse-compute from.
-        // Previously 2px 12px (~23.5px), sized against the *native toolbar
-        // buttons'* height instead; that comparison no longer applies now
-        // that this renders on its own row rather than inline with them.
+        // Inline as a real flex item of the same toolbar row as Playtest/Buy
+        // Deck/Download/More — not a separately positioned box relative to
+        // that row — appended as the row's new last item, right after
+        // "More" (see findMoreButtonAnchor/prepareToolbarRow: this button
+        // gets no "me-5" of its own since it's now last, "More" gets it
+        // instead since it no longer is, and the row's own alignItems is
+        // set there too so every item — including this taller, padded
+        // button — lines up at the same visual height instead of top-
+        // aligned by the flex default).
+        appendTo: (() => {
+          const anchor = findMoreButtonAnchor();
+          if (anchor) prepareToolbarRow(anchor);
+          return anchor?.flexRow;
+        })(),
         btnPadding: "7px 12px",
         checkPriceColumnEnabled: isPriceColumnEnabled,
         priceColumnHelp: MOXFIELD_PRICE_COLUMN_HELP,
@@ -957,8 +994,18 @@ function run() {
 observeAndRerun((mutations) => {
   if (hasAddedNodeMatching(mutations, SEL_CARD_ROW)) return true;
   if (hasAddedNodeMatching(mutations, SEL_DECKLIST_CARD)) return true;
-  return mutations.some((m) => {
-    const row = m.target.closest?.(SEL_CARD_ROW);
-    return row && !row.hasAttribute(PROCESSED_ATTR);
-  });
+  if (
+    mutations.some((m) => {
+      const row = m.target.closest?.(SEL_CARD_ROW);
+      return row && !row.hasAttribute(PROCESSED_ATTR);
+    })
+  ) {
+    return true;
+  }
+  // None of the above catch a toolbar-only re-render (see
+  // isPendingPricesButtonMissing's own comment) — this is the same
+  // body-wide observer already running for the checks above, so this just
+  // gives it one more cheap thing to notice per batch instead of standing
+  // up a second observer only for the toolbar.
+  return isPendingPricesButtonMissing();
 }, run);
