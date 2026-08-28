@@ -15,20 +15,36 @@
 const SEL_EDITION_SLIDER = "#slider-editions-icons";
 const SEL_EDITION_ICON = ".edition-icon";
 const SEL_EDITION_FILTER_CHECKBOX = 'input[filter="2"]';
+const SEL_CARD_NUMBER_FILTER_CHECKBOX = 'input[filter="3"]';
 const EDITION_SEARCH_BADGE_CLASS = "lm-ext-edition-search-badge";
 
 /**
  * The edition icon's own image carries "#<printNumber> - <editionName>" as
  * its title (e.g. "#212 - Marvel Super Heroes Commander") -- confirmed live
- * against Sol Ring's icons. Only the edition-name half is used: the
- * "Edições" filter in Comprar no Marketplace groups listings by edition/set
- * only (its own separate "Numeração do Card" filter covers print number),
- * so the print number in the title isn't needed for this match.
+ * against Sol Ring's icons. Both halves are used: the name for the primary
+ * match against the "Edições" filter, the print number as a fallback (see
+ * applyEditionToFilters).
  */
-function parseEditionName(icon) {
+function parseIconTitle(icon) {
   const title = icon.querySelector("img")?.getAttribute("title");
-  const match = title?.match(/^#\S+\s*-\s*(.+)$/);
-  return match ? match[1].trim() : null;
+  const match = title?.match(/^#(\S+)\s*-\s*(.+)$/);
+  return match ? { number: match[1], name: match[2].trim() } : null;
+}
+
+/**
+ * Checks `target` in its filter group and unchecks any other box already
+ * checked in that same group: this is a "show me just this edition/number"
+ * action, not an additive multi-select.
+ */
+function checkOnlyThisFilter(target, groupSelector) {
+  document.querySelectorAll(`${groupSelector}:checked`).forEach((cb) => {
+    // Clicking the native checkbox (rather than just setting .checked) fires
+    // its own onclick, which is how the page's screenfilter script learns a
+    // selection changed and re-applies the filter -- same technique as
+    // everywhere else this extension drives an existing LigaMagic control.
+    if (cb !== target) cb.click();
+  });
+  if (!target.checked) target.click();
 }
 
 /**
@@ -38,34 +54,46 @@ function parseEditionName(icon) {
  * client-side against data already loaded on the page -- checking a
  * checkbox fires no network request.
  *
- * Any other edition already checked in that same group is unchecked first:
- * this is a "show me just this edition" action, not an additive multi-select.
+ * Some editions (e.g. Bonus Sheet / Source Material crossover sets --
+ * confirmed live on "Tangle") are rendered with the name order swapped in
+ * this specific filter versus everywhere else on the page ("Marvel's
+ * Spider-Man (Source Material)" on the icon/dropdown, "Source Material -
+ * Marvel's Spider-Man" in this filter's own title), so the exact-name match
+ * can legitimately miss. When that happens, this falls back to the
+ * "Numeração do Card" filter (its own separate group), matching on the
+ * print number already parsed from the icon's title. That number isn't
+ * always unique to one edition (a Bonus Sheet reprint can share its base
+ * set's collector number), so it's only a fallback, not the primary match.
  */
 function applyEditionToFilters(icon) {
-  const editionName = parseEditionName(icon);
-  if (!editionName) {
-    logNotShown("Filtrar por edição (Comprar no Marketplace)", "nome da edição não encontrado no ícone (título da imagem ausente/inesperado)");
+  const parsed = parseIconTitle(icon);
+  if (!parsed) {
+    logNotShown("Filtrar por edição (Comprar no Marketplace)", "nome/número da edição não encontrado no ícone (título da imagem ausente/inesperado)");
     return;
   }
 
-  const target = [...document.querySelectorAll(SEL_EDITION_FILTER_CHECKBOX)].find(
-    (cb) => cb.closest("label")?.querySelector(".filter-infos")?.getAttribute("title") === editionName,
+  const byName = [...document.querySelectorAll(SEL_EDITION_FILTER_CHECKBOX)].find(
+    (cb) => cb.closest("label")?.querySelector(".filter-infos")?.getAttribute("title") === parsed.name,
   );
-  if (!target) {
-    logNotShown("Filtrar por edição (Comprar no Marketplace)", `checkbox de edição "${editionName}" não encontrado nos filtros`);
+  if (byName) {
+    checkOnlyThisFilter(byName, SEL_EDITION_FILTER_CHECKBOX);
+    log(`Filtro de edição aplicado em Comprar no Marketplace (por nome): ${parsed.name}`);
     return;
   }
 
-  document.querySelectorAll(`${SEL_EDITION_FILTER_CHECKBOX}:checked`).forEach((cb) => {
-    // Clicking the native checkbox (rather than just setting .checked) fires
-    // its own onclick, which is how the page's screenfilter script learns a
-    // selection changed and re-applies the filter -- same technique as
-    // everywhere else this extension drives an existing LigaMagic control.
-    if (cb !== target) cb.click();
-  });
-  if (!target.checked) target.click();
+  const byNumber = [...document.querySelectorAll(SEL_CARD_NUMBER_FILTER_CHECKBOX)].find(
+    (cb) => cb.closest("label")?.querySelector(".filter-infos")?.getAttribute("title") === `#${parsed.number}`,
+  );
+  if (byNumber) {
+    checkOnlyThisFilter(byNumber, SEL_CARD_NUMBER_FILTER_CHECKBOX);
+    log(`Edição "${parsed.name}" não encontrada no filtro de Edições; aplicado fallback por Numeração do Card: #${parsed.number}`);
+    return;
+  }
 
-  log(`Filtro de edição aplicado em Comprar no Marketplace: ${editionName}`);
+  logNotShown(
+    "Filtrar por edição (Comprar no Marketplace)",
+    `nem o nome ("${parsed.name}") nem o número ("#${parsed.number}") da edição foram encontrados nos filtros`,
+  );
 }
 
 function buildEditionSearchBadge(icon) {
