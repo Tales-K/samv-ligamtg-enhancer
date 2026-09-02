@@ -135,6 +135,10 @@ página individual da carta
   filtro padrão sem sair do Scryfall. O valor é o mesmo campo "Filtro padrão"
   do popup da extensão, então pode ser editado pelos dois lugares
 
+## EDHREC (edhrec.com)
+- Link "Ver no LigaMagic" na página de um comandante — abre a página da
+  carta no LigaMagic em uma nova aba
+
 ---
 
 ## Popup da extensão (não é uma página do LigaMagic)

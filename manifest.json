@@ -8,7 +8,8 @@
     "*://*.ligamagic.com.br/*",
     "*://*.archidekt.com/*",
     "*://*.moxfield.com/*",
-    "*://*.scryfall.com/*"
+    "*://*.scryfall.com/*",
+    "*://*.edhrec.com/*"
   ],
   "optional_host_permissions": ["*://*/*"],
   "background": {
@@ -53,6 +54,10 @@
     {
       "matches": ["*://*.scryfall.com/*"],
       "js": ["overlay-utils.js", "overlay-scryfall.js", "overlay-scryfall-tags.js", "overlay-scryfall-filter.js", "overlay-scryfall-search.js"]
+    },
+    {
+      "matches": ["*://*.edhrec.com/*"],
+      "js": ["overlay-utils.js", "overlay-edhrec.js"]
     }
   ]
 }

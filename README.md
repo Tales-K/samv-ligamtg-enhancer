@@ -61,6 +61,7 @@ O ícone da extensão abre um painel onde cada recurso acima é ligado, desligad
 | [Archidekt](https://archidekt.com) | Preço em R$, totais do deck, preços pendentes |
 | [Moxfield](https://moxfield.com) | Preço em R$, totais do deck, preços pendentes |
 | [Scryfall](https://scryfall.com) | Coluna R$, preços pendentes, compra no LigaMagic, tags, filtro de busca |
+| [EDHREC](https://edhrec.com) | Link direto pra página da carta no LigaMagic |
 
 ---
 
@@ -73,7 +74,7 @@ O código é aberto e pode ser auditado por qualquer pessoa, a qualquer momento:
 
 ## Aviso legal
 
-O **SAMV LigaMtg Enhancer** é uma ferramenta independente, feita sem fins lucrativos pela **Sociedade Amigos do Vale (SAMV)**, para a comunidade de jogadores. Não possui nenhum vínculo, parceria ou patrocínio de nenhuma das plataformas mencionadas: [LigaMagic](https://www.ligamagic.com.br), [Archidekt](https://archidekt.com), [Moxfield](https://moxfield.com) e [Scryfall](https://scryfall.com).
+O **SAMV LigaMtg Enhancer** é uma ferramenta independente, feita sem fins lucrativos pela **Sociedade Amigos do Vale (SAMV)**, para a comunidade de jogadores. Não possui nenhum vínculo, parceria ou patrocínio de nenhuma das plataformas mencionadas: [LigaMagic](https://www.ligamagic.com.br), [Archidekt](https://archidekt.com), [Moxfield](https://moxfield.com), [Scryfall](https://scryfall.com) e [EDHREC](https://edhrec.com).
 
 **Como a extensão funciona por baixo dos panos.** Os preços em reais que aparecem no Archidekt, Moxfield e Scryfall são exatamente os valores que você já viu no LigaMagic, guardados no seu próprio navegador na primeira vez que você visita a carta por lá — não existe uma base de preços compartilhada entre usuários. A extensão só sobrepõe essa informação na tela, de forma puramente visual: nada é enviado de volta para o LigaMagic nem para qualquer outro lugar. Dentro do próprio LigaMagic, os ajustes de menu, visualização de deck e filtros de compra também rodam localmente, com a sua sessão já autenticada: nenhum comportamento por trás dessas telas é escondido de você.
 

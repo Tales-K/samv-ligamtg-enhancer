@@ -142,6 +142,7 @@ document.addEventListener("DOMContentLoaded", () => {
     "removeGerarImagemButton",
     "addCardHoverLinks",
     "addEditionSearchButton",
+    "addEdhrecLigaMagicButton",
     "rememberListaFilters",
     "addLoadDefaultsButton",
     "enableCustomStoreSearch",

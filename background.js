@@ -1646,6 +1646,7 @@ const DEFAULT_SETTINGS = {
   addCardHoverLinks: true, // whether Scryfall/EDHREC buttons are added to the card-hover image tooltip
   addCardSearchContextMenu: true, // whether the "Pesquisar carta" right-click submenu is registered, browser-wide
   addEditionSearchButton: true, // whether the magnifying-glass badge is added next to edition icons on a card page
+  addEdhrecLigaMagicButton: true, // whether a "Ver no LigaMagic" link is added to a commander page's card panel on EDHREC
   // How "Copiar Lista de Compras" formats each card line, remembered across
   // uses so the panel reopens the way it was last left. `detalhado` swaps in
   // LigaMagic's own format and makes the other four inert (see
