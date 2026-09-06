@@ -13,13 +13,20 @@
  * cards aren't actually part of the deck (same board data — and the same
  * "not counted" rule — deck-view.js uses for the price total/tooltip).
  *
+ * Copies in whichever order is currently on screen when that order is one
+ * getDeckBoards() can read reliably (Padrão or this extension's own "Preço"
+ * tab — see getActiveCopyableBoardsSource's own doc comment for why the
+ * other native views stay on the Padrão fallback instead).
+ *
  * Depends on: content-utils.js (log, cardNameFromHref, showCopiedFeedback,
  * applySamvStyle),
- * scraper-deck.js (isDeckPage), deck-view.js (getDeckBoards)
+ * scraper-deck.js (isDeckPage), deck-view.js (getDeckBoards,
+ * getActiveCopyableBoardsSource)
  */
 
 function buildDeckListText(deckId) {
-  const boards = getDeckBoards(deckId).filter(
+  const source = getActiveCopyableBoardsSource(deckId);
+  const boards = getDeckBoards(deckId, source).filter(
     (board) => board.label.toLowerCase() !== "maybeboard",
   );
 

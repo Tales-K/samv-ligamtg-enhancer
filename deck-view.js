@@ -20,13 +20,17 @@
 const DECK_VIEW_TAB_IDS = [1, 2, 3, 4, 5, 6, 8]; // native LigaMagic view ids
 
 /**
- * Reads the board sections (Mainboard / Sideboard / Maybeboard) from the
- * Padrão view (#dk-val-1-<id>), the only view that keeps them cleanly
- * separated. Returns [{ label, el }], in DOM order. Used both to build the
- * "Preço" tab and by deck-copy-button.js to build the copyable card list.
+ * Reads the board sections (Mainboard / Sideboard / Maybeboard) from
+ * `sourceEl` — defaults to the Padrão view (#dk-val-1-<id>), the only native
+ * view that keeps them cleanly separated, but also works on the "Preço"
+ * view's own container (#dk-val-price-<id>): buildPriceView() below clones
+ * Padrão's rows into that same shape (a first .pdeck-block board, further
+ * boards after their own hr.pdeck-maybe) rather than inventing a new one.
+ * Returns [{ label, el }], in DOM order. Used both to build the "Preço" tab
+ * and by deck-copy-button.js to build the copyable card list.
  */
-function getDeckBoards(deckId) {
-  const source = document.getElementById(`dk-val-1-${deckId}`);
+function getDeckBoards(deckId, sourceEl) {
+  const source = sourceEl ?? document.getElementById(`dk-val-1-${deckId}`);
   if (!source) return [];
 
   const boards = [];
@@ -134,6 +138,27 @@ function selectPriceView(deckId) {
   if (view) view.style.display = "";
   tab?.classList.add("tab-selected");
   repaintPriceTab(deckId);
+}
+
+/**
+ * The board source "Copiar Deck" should read from: Padrão and Preço are the
+ * only two views built on the cleanly-separated Mainboard/Sideboard/
+ * Maybeboard structure getDeckBoards() understands — Preço is a clone of
+ * Padrão's own rows, just reordered by price, so it carries that same shape
+ * over. Every other native view (Cor/Custo/Raridade/Visual/CMC/Grid) either
+ * merges those boards together with no way to tell them apart (confirmed
+ * live: Cor/Custo/Raridade list everything under one "Main Deck" heading,
+ * no hr.pdeck-maybe boundary) or isn't a text list at all (Visual/CMC/Grid
+ * render an image grid, no .deck-line rows to read a quantity/name from) —
+ * Padrão stays the source for all of those, same as before this existed.
+ */
+function getActiveCopyableBoardsSource(deckId) {
+  const priceTab = document.getElementById(`dk-tab-price-${deckId}`);
+  if (priceTab?.classList.contains("tab-selected")) {
+    const priceView = document.getElementById(`dk-val-price-${deckId}`);
+    if (priceView) return priceView;
+  }
+  return document.getElementById(`dk-val-1-${deckId}`);
 }
 
 /**
