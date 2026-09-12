@@ -134,6 +134,7 @@ document.addEventListener("DOMContentLoaded", () => {
     "addScryfallFilterButton",
     "addPriceView",
     "addDeckGridPrices",
+    "addBuyModalPriceGrouping",
     "addMeusDecksTab",
     "addMeusPedidosTab",
     "removeLeiloesTab",

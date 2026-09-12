@@ -1626,6 +1626,7 @@ const DEFAULT_SETTINGS = {
   defaultDeckView: "price", // deck page tab to auto-select on load; "" keeps LigaMagic's own default
   addPriceView: true, // whether the "Preço" deck visualization tab is injected at all
   addDeckGridPrices: true, // whether the deck page's native "Grid" view gets a Mín/Méd/Máx price block under each card
+  addBuyModalPriceGrouping: true, // whether the "Comprar Deck" modal shows each card's price and groups them by price band
   addMeusDecksTab: true, // whether the "Meus Decks" tab is injected into the main menu
   addMeusPedidosTab: true, // whether the "Meus Pedidos" tab is injected next to it
   removeLeiloesTab: true, // whether the "Leilões" tab is removed from the main menu

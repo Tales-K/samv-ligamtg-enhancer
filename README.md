@@ -36,6 +36,7 @@ Tudo é opcional: cada recurso abaixo pode ser ligado ou desligado no painel da 
 ### Página do deck
 - **Aba "Preço".** Ordena as cartas do deck por valor, sem misturar mainboard, sideboard e maybeboard. Dá pra escolher qual aba abre automaticamente em todo deck.
 - **Botão "Copiar Deck".** A lista completa na área de transferência em um clique, em texto puro.
+- **Preço no modal "Comprar Deck".** Mostra o valor de cada carta e agrupa por faixa de preço, da mais barata à mais cara, sem misturar maindeck e sideboard.
 - **Remover o botão "Gerar Imagem"**, se você não usa.
 
 ### Menu e navegação

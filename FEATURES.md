@@ -45,6 +45,9 @@ mínimo, amarelo o médio, vermelho o máximo — em vez de indicar idade.
 - Preços Mín/Méd/Máx embaixo de cada carta na aba nativa "Grid", lado a lado
   numa linha só, coloridos por identidade (verde/amarelo/vermelho, ver nota
   acima) em vez de rotulados por texto (habilitado por padrão)
+- Preço ao lado de cada carta no modal "Comprar Deck", com as cartas
+  ordenadas da mais barata à mais cara e divididas por faixa de valor dentro
+  de cada grupo (Maindeck/Sideboard), sem misturar os grupos entre si
 
 ### Hover de carta (tooltip ao passar o mouse sobre o nome ou a imagem de
 uma carta) — deck, listagem de "Meus Decks", grade de busca de cartas
