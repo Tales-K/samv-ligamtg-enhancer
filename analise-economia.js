@@ -54,18 +54,24 @@ const ANALISE_TOP_N = 20; // at most this many candidates get analyzed
  *   - lojas: [{ nome, frete }]
  *   - cards: [{ chaveBusca, nome, qtd, valorAtual, porLoja }] -- only cards
  *     currently being REALLY bought (quantidade > 0 somewhere).
- *     `porLoja` is a Map<lojaNome, { qtd, valor }>: the actual current
- *     purchase split straight from each block's quantidade > 0 entries --
- *     this, not any recomputation, is what "bought at store X" means
- *     throughout this file.
- *   - ofertas: Map<chaveBusca, [{ preco, iQuant, loja }]> -- EVERY offer for
- *     that card, from every store, regardless of whether it's the one
- *     currently bought from (includes quantidade:0 "outras cartas
- *     disponíveis" entries -- those are exactly the alternatives a
- *     relocation would use). Flat (not grouped by store) and sorted by
- *     price, because refilling a card within a set of stores pools the
- *     cheapest offers across all of them together -- see preencherCarta().
- *   - cartasPorLoja: Map<lojaNome, Map<chaveBusca, { nome, qtd, valor }>> --
+ *     `porLoja` is a Map<lojaNome, { qtd, valor, bloco, linha }>: the actual
+ *     current purchase split straight from each block's quantidade > 0
+ *     entries -- this, not any recomputation, is what "bought at store X"
+ *     means throughout this file. `bloco`/`linha` locate the real DOM row
+ *     for that store+card (`#item_<bloco>_<linha>`), needed by
+ *     aplicarPlanoNaTela() to actually carry out a suggestion; if the same
+ *     card+store somehow appears as more than one row, only the first one's
+ *     coordinates are kept (stores don't normally list the same card twice).
+ *   - ofertas: Map<chaveBusca, [{ preco, iQuant, loja, bloco, linha }]> --
+ *     EVERY offer for that card, from every store, regardless of whether
+ *     it's the one currently bought from (includes quantidade:0 "outras
+ *     cartas disponíveis" entries -- those are exactly the alternatives a
+ *     relocation would use, and their bloco/linha is exactly the hidden,
+ *     already-interactive row a relocation writes its new quantity into).
+ *     Flat (not grouped by store) and sorted by price, because refilling a
+ *     card within a set of stores pools the cheapest offers across all of
+ *     them together -- see preencherCarta().
+ *   - cartasPorLoja: Map<lojaNome, Map<chaveBusca, { nome, qtd, valor, bloco, linha }>> --
  *     reverse index of the same real purchases, for "what else does this
  *     store actually sell me right now" lookups.
  *   - lojasSemFrete: [nome] -- stores whose `frete` isn't a real number yet.
@@ -79,8 +85,11 @@ const ANALISE_TOP_N = 20; // at most this many candidates get analyzed
  *     trusting any cost computed from `lojas`.
  */
 function consolidarResultado(resultado) {
-  const blocos = Object.values(resultado ?? {}).filter(Boolean);
-  const lojas = blocos.map((b) => ({ nome: b.nomeLoja, frete: b.frete }));
+  // Object.entries (not .values) so the numeric block key survives -- it's
+  // the "bloco" half of every #item_<bloco>_<linha> DOM row this file needs
+  // to locate later, and Object.values would discard it.
+  const blocosEntries = Object.entries(resultado ?? {}).filter(([, b]) => Boolean(b));
+  const lojas = blocosEntries.map(([, b]) => ({ nome: b.nomeLoja, frete: b.frete }));
   const lojasSemFrete = lojas
     .filter((l) => typeof l.frete !== "number" || Number.isNaN(l.frete))
     .map((l) => l.nome);
@@ -88,8 +97,11 @@ function consolidarResultado(resultado) {
   const ofertas = new Map();
   const cardsMap = new Map();
 
-  for (const bloco of blocos) {
-    for (const carta of bloco.cartas ?? []) {
+  for (const [blocoKey, bloco] of blocosEntries) {
+    const blocoIndex = Number(blocoKey);
+    const cartas = bloco.cartas ?? [];
+    for (let linha = 0; linha < cartas.length; linha++) {
+      const carta = cartas[linha];
       if (!carta) continue;
       const chave = carta.chaveBusca;
 
@@ -98,6 +110,8 @@ function consolidarResultado(resultado) {
         preco: carta.preco,
         iQuant: carta.iQuant ?? 0,
         loja: bloco.nomeLoja,
+        bloco: blocoIndex,
+        linha,
       });
 
       if (carta.quantidade > 0) {
@@ -110,7 +124,12 @@ function consolidarResultado(resultado) {
         };
         atual.qtd += carta.quantidade;
         atual.valorAtual += carta.quantidade * carta.preco;
-        const emLoja = atual.porLoja.get(bloco.nomeLoja) ?? { qtd: 0, valor: 0 };
+        const emLoja = atual.porLoja.get(bloco.nomeLoja) ?? {
+          qtd: 0,
+          valor: 0,
+          bloco: blocoIndex,
+          linha,
+        };
         emLoja.qtd += carta.quantidade;
         emLoja.valor += carta.quantidade * carta.preco;
         atual.porLoja.set(bloco.nomeLoja, emLoja);
@@ -125,7 +144,13 @@ function consolidarResultado(resultado) {
   for (const card of cardsMap.values()) {
     for (const [loja, info] of card.porLoja) {
       if (!cartasPorLoja.has(loja)) cartasPorLoja.set(loja, new Map());
-      cartasPorLoja.get(loja).set(card.chaveBusca, { nome: card.nome, qtd: info.qtd, valor: info.valor });
+      cartasPorLoja.get(loja).set(card.chaveBusca, {
+        nome: card.nome,
+        qtd: info.qtd,
+        valor: info.valor,
+        bloco: info.bloco,
+        linha: info.linha,
+      });
     }
   }
 
@@ -153,12 +178,14 @@ function lojasQueOferecem(consolidado, chaveBusca) {
  * Only the remainder is actually available here; skipping this check would
  * let a store's already-fully-committed stock look free to pull from twice.
  *
- * Returns { custo, porLoja: Map<loja, { qtd, custo }> }, or null if the
- * offers available within `lojasAbertas` can't cover `qtd` (this card
- * doesn't have enough free stock there). `porLoja` carries each
+ * Returns { custo, porLoja: Map<loja, { qtd, custo, bloco, linha }> }, or
+ * null if the offers available within `lojasAbertas` can't cover `qtd` (this
+ * card doesn't have enough free stock there). `porLoja` carries each
  * destination's own quantity and cost (not just its share of the total) so
  * callers can show exactly how much moves where, and at what price, when a
- * card ends up split across more than one store.
+ * card ends up split across more than one store -- plus that destination's
+ * own bloco/linha, so a caller can actually write the moved quantity into
+ * its real (already interactive, if currently hidden) DOM row.
  */
 function preencherCarta(consolidado, chaveBusca, lojasAbertas, qtd) {
   const ofertas = consolidado.ofertas.get(chaveBusca) ?? [];
@@ -182,7 +209,7 @@ function preencherCarta(consolidado, chaveBusca, lojasAbertas, qtd) {
     if (usar <= 0) continue;
     const custoAqui = usar * oferta.preco;
     custo += custoAqui;
-    const atual = porLoja.get(oferta.loja) ?? { qtd: 0, custo: 0 };
+    const atual = porLoja.get(oferta.loja) ?? { qtd: 0, custo: 0, bloco: oferta.bloco, linha: oferta.linha };
     atual.qtd += usar;
     atual.custo += custoAqui;
     porLoja.set(oferta.loja, atual);
@@ -240,10 +267,18 @@ function analisarFechamentosCandidato(consolidado, card) {
       ([chave]) => chave !== card.chaveBusca,
     );
     const lojaInfo = lojaPorNome.get(loja);
-    const { qtd: qtdCandidato, valor: valorCandidato } = card.porLoja.get(loja);
+    const { qtd: qtdCandidato, valor: valorCandidato, bloco, linha } = card.porLoja.get(loja);
 
     if (outras.length === 0) {
-      lojasFechando.push({ nome: loja, frete: lojaInfo.frete, valorCandidato, qtdCandidato, realocacoes: [] });
+      lojasFechando.push({
+        nome: loja,
+        frete: lojaInfo.frete,
+        valorCandidato,
+        qtdCandidato,
+        bloco,
+        linha,
+        realocacoes: [],
+      });
       continue;
     }
 
@@ -264,17 +299,66 @@ function analisarFechamentosCandidato(consolidado, card) {
         precoAntes: info.valor,
         precoDepois: preenchido.custo,
         delta,
-        destino: [...preenchido.porLoja], // [loja, { qtd, custo }][] -- can span more than one store
+        bloco: info.bloco,
+        linha: info.linha,
+        destino: [...preenchido.porLoja], // [loja, { qtd, custo, bloco, linha }][] -- can span more than one store
       });
     }
     if (inviavel) continue; // something at this store is exclusive to it -- can't close, whatever else is true
     if (lojaInfo.frete - somaDeltas <= 0) continue; // relocating everything else costs more than the shipping saved
 
-    lojasFechando.push({ nome: loja, frete: lojaInfo.frete, valorCandidato, qtdCandidato, realocacoes, somaDeltas });
+    lojasFechando.push({
+      nome: loja,
+      frete: lojaInfo.frete,
+      valorCandidato,
+      qtdCandidato,
+      bloco,
+      linha,
+      realocacoes,
+      somaDeltas,
+    });
   }
 
   const economia = lojasFechando.reduce((soma, l) => soma + l.frete - (l.somaDeltas ?? 0), 0);
   return { economia, lojasFechando };
+}
+
+/**
+ * Turns a list of realocacoes (as produced by analisarFechamentosCandidato
+ * or analisarReorganizacaoLoja) into the two DOM operations that actually
+ * carry them out: `zerar` -- rows to drop to 0 units, exactly like clicking
+ * the page's own delete icon -- and `incrementar` -- rows to add `qtd` units
+ * on top of whatever they already have (already net of that store's own
+ * existing real quantity, see preencherCarta, so this is always the correct
+ * amount to add, never to overwrite).
+ */
+function planoDeRealocacoes(realocacoes) {
+  const zerar = [];
+  const incrementar = [];
+  for (const realoc of realocacoes) {
+    zerar.push({ bloco: realoc.bloco, linha: realoc.linha });
+    for (const [, info] of realoc.destino) {
+      incrementar.push({ bloco: info.bloco, linha: info.linha, qtd: info.qtd });
+    }
+  }
+  return { zerar, incrementar };
+}
+
+/**
+ * Structured, DOM-executable version of what construirInstrucoes() already
+ * describes in prose for one candidate's suggestion -- consumed by
+ * aplicarPlanoNaTela() to actually carry it out on the live results screen.
+ */
+function construirPlanoAplicacao(analise) {
+  const zerar = [];
+  const incrementar = [];
+  for (const loja of analise.lojasFechando) {
+    zerar.push({ bloco: loja.bloco, linha: loja.linha });
+    const plano = planoDeRealocacoes(loja.realocacoes);
+    zerar.push(...plano.zerar);
+    incrementar.push(...plano.incrementar);
+  }
+  return { zerar, incrementar };
 }
 
 // ── Reorganização (close a store without dropping any card) ────────────────────
@@ -533,6 +617,7 @@ async function analisarEconomiaAsync(resultado, freteCaroLimiar = FRETE_CARO_LIM
         economia: analise.economia,
         lojasQueSaem: analise.lojasFechando.map((l) => l.nome),
         instrucoes: construirInstrucoes(card, analise, totalAtual),
+        plano: construirPlanoAplicacao(analise),
       });
     }
     if (i % 5 === 4) await new Promise((resolve) => setTimeout(resolve, 0));
@@ -565,9 +650,9 @@ async function analisarEconomiaAsync(resultado, freteCaroLimiar = FRETE_CARO_LIM
 
 // Bumped whenever the report's shape or the meaning of `economia` changes,
 // so a previously-cached analysis (computed under different semantics) is
-// never mistaken for a fresh one and shown as-is. Bumped to 5 for the new
-// reorganizacoes/alertasFreteCaro sections.
-const ANALISE_CACHE_VERSION = 5;
+// never mistaken for a fresh one and shown as-is. Bumped to 6 for the new
+// `plano` field on each `resultados` entry (Aplicar Economia).
+const ANALISE_CACHE_VERSION = 6;
 
 /** Cheap fingerprint of a search result, to know whether a cached analysis is still current. */
 function hashResultado(resultado) {
@@ -649,6 +734,104 @@ if (typeof document !== "undefined") {
     return button;
   }
 
+  /** Caption shown under the button once an analysis (auto or manual) has run. */
+  function buildIndicadorEconomia() {
+    const indicador = document.createElement("div");
+    indicador.id = "lgm-analise-economia-indicador";
+    indicador.style.cssText =
+      "text-align: center; font-size: 11px; margin: 4px auto 0 auto; width: fit-content; font-weight: 600;";
+    return indicador;
+  }
+
+  /**
+   * Sums up the independent savings opportunities in `relatorio` into one
+   * "up to R$X" figure -- deliberately an approximation, not a guarantee
+   * every listed suggestion can be applied together: a store can appear as
+   * the subject of both a reorganização entry and a remoção entry (two
+   * different ways of closing the same store), and applying one makes the
+   * other moot, so counting both in full would double-count that store's
+   * shipping. Dedupes by store name to avoid that specific case; two
+   * suggestions that touch entirely different stores are genuinely
+   * independent and both count in full.
+   */
+  function calcularEconomiaTotalDisponivel(relatorio) {
+    const lojasContadas = new Set();
+    let total = 0;
+    for (const reorg of relatorio.reorganizacoes ?? []) {
+      if (lojasContadas.has(reorg.nome)) continue;
+      lojasContadas.add(reorg.nome);
+      total += reorg.economia;
+    }
+    for (const item of relatorio.resultados ?? []) {
+      if ((item.lojasQueSaem ?? []).every((nome) => lojasContadas.has(nome))) continue;
+      item.lojasQueSaem?.forEach((nome) => lojasContadas.add(nome));
+      total += item.economia;
+    }
+    return total;
+  }
+
+  function renderIndicadorEconomia(indicador, relatorio) {
+    if (!indicador) return;
+    if (relatorio?.baseline == null) {
+      indicador.textContent = "";
+      return;
+    }
+    const total = calcularEconomiaTotalDisponivel(relatorio);
+    if (total > ANALISE_ECONOMIA_MINIMA) {
+      indicador.textContent = `💰 Até R$ ${formatarMoeda(total)} de economia disponível`;
+      indicador.style.color = "#1a7f37";
+    } else {
+      indicador.textContent = "";
+    }
+  }
+
+  /**
+   * Computes (from cache when possible, so this never redoes work a manual
+   * click or a previous auto-check already did for the same result) and
+   * shows the savings caption -- entirely local, no LigaMagic request of any
+   * kind beyond the same getListaResultado round-trip the button's own click
+   * handler already uses.
+   */
+  let ultimoHashIndicador = null;
+  async function atualizarIndicadorEconomia(indicador) {
+    if (freteAindaCalculando()) return;
+    const resultado = await sendMessage({ action: "getListaResultado" });
+    if (!resultado || Object.keys(resultado).length === 0) return;
+
+    const hash = hashResultado(resultado);
+    if (hash === ultimoHashIndicador) return;
+
+    const settings = await getSettings();
+    if (settings?.addAnaliseEconomia === false) return;
+    const freteCaroLimiar = Number(settings?.freteCaroLimiar) || FRETE_CARO_LIMIAR_PADRAO;
+
+    const cache = settings?.analiseEconomiaCache;
+    const relatorio =
+      cache?.hash === hash ? cache.relatorio : await runAndCache(resultado, hash, freteCaroLimiar);
+    if (relatorio.baseline == null) return; // frete de alguma loja ainda pendente -- não mostra nada ainda
+
+    ultimoHashIndicador = hash;
+    renderIndicadorEconomia(indicador, relatorio);
+  }
+
+  /**
+   * Keeps the caption in sync as searches happen, without polling: watches
+   * the same "Calculando frete..." indicator frete-caro-alert.js and
+   * esperarFreteCalculado() already key off, narrowly scoped to just its own
+   * class attribute so this never reacts to unrelated page mutations.
+   */
+  function initIndicadorEconomiaObserver(indicador) {
+    const tentar = () => atualizarIndicadorEconomia(indicador);
+    tentar();
+
+    const calculando = document.getElementById("main_calculando_fretes");
+    if (!calculando) {
+      logNotShown("Indicador de economia (observer de frete)", "#main_calculando_fretes não encontrado");
+      return;
+    }
+    new MutationObserver(tentar).observe(calculando, { attributes: true, attributeFilter: ["class"] });
+  }
+
   function injectAnaliseButton() {
     if (document.getElementById("lgm-analise-economia-btn")) return true;
     const finalizarBtn = document.getElementById("btn-finalizar");
@@ -656,7 +839,10 @@ if (typeof document !== "undefined") {
 
     const button = buildAnaliseButton();
     finalizarBtn.parentElement.appendChild(button);
-    button.addEventListener("click", () => handleAnaliseClick(button));
+    const indicador = buildIndicadorEconomia();
+    finalizarBtn.parentElement.appendChild(indicador);
+    button.addEventListener("click", () => handleAnaliseClick(button, false, indicador));
+    initIndicadorEconomiaObserver(indicador);
 
     analiseLog('Injected "Análise de Economia" button.');
     return true;
@@ -747,8 +933,13 @@ if (typeof document !== "undefined") {
     return header;
   }
 
-  /** One collapsible accordion row -- shared by both the "remoção" and "reorganização" sections. */
-  function buildRow(item, tooltipEconomia) {
+  /**
+   * One collapsible accordion row -- shared by both the "remoção" and
+   * "reorganização" sections. `onAplicar`, when given, adds an "Aplicar
+   * Economia" button to the expanded body that runs it (async) and shows a
+   * busy state while it does; omit it to leave a row read-only.
+   */
+  function buildRow(item, tooltipEconomia, onAplicar) {
     const row = document.createElement("div");
     row.style.cssText = "border-bottom: 1px solid #eee;";
 
@@ -787,6 +978,33 @@ if (typeof document !== "undefined") {
       p.textContent = linha;
       body.appendChild(p);
     });
+
+    if (onAplicar) {
+      const aplicarBtn = document.createElement("button");
+      aplicarBtn.type = "button";
+      aplicarBtn.textContent = "Aplicar Economia";
+      aplicarBtn.style.cssText =
+        "margin-top: 10px; padding: 6px 14px; border: none; border-radius: 4px; cursor: pointer; " +
+        "font-weight: 700; font-family: inherit; font-size: 12px;";
+      applySamvStyle(aplicarBtn);
+      aplicarBtn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        aplicarBtn.disabled = true;
+        aplicarBtn.textContent = "Aplicando...";
+        try {
+          await onAplicar();
+          // On success the whole modal gets replaced by a freshly recomputed
+          // one (see aplicarEconomiaRemocao) -- this row won't survive that,
+          // so there's nothing left to reset here.
+        } catch (err) {
+          analiseLog("Falha ao aplicar economia —", err.message);
+          aplicarBtn.disabled = false;
+          aplicarBtn.textContent = "Aplicar Economia";
+        }
+      });
+      body.appendChild(aplicarBtn);
+    }
+
     row.appendChild(body);
 
     head.addEventListener("click", () => {
@@ -882,7 +1100,10 @@ if (typeof document !== "undefined") {
       const tooltip =
         "Economia por redistribuição: não inclui o preço da própria carta, só o que sobra de fechar " +
         "loja(s) e/ou realocar as outras cartas para ofertas mais baratas.";
-      relatorio.resultados.forEach((item) => body.appendChild(buildRow(item, tooltip)));
+      relatorio.resultados.forEach((item) => {
+        const onAplicar = item.plano ? () => aplicarEconomiaRemocao(item.plano) : undefined;
+        body.appendChild(buildRow(item, tooltip, onAplicar));
+      });
     }
 
     return body;
@@ -1015,7 +1236,8 @@ if (typeof document !== "undefined") {
     return relatorio;
   }
 
-  async function handleAnaliseClick(button, forcarRecalculo = false) {
+  async function handleAnaliseClick(button, forcarRecalculo = false, indicador = null) {
+    indicador ??= document.getElementById("lgm-analise-economia-indicador");
     const { abortado, resultado } = await aguardarFreteEObterResultado(button);
     if (abortado) return;
     if (!resultado || Object.keys(resultado).length === 0) {
@@ -1030,7 +1252,9 @@ if (typeof document !== "undefined") {
     if (!forcarRecalculo) {
       const cache = settings?.analiseEconomiaCache;
       if (cache && cache.hash === hash) {
-        showModal(cache.relatorio, true, () => handleAnaliseClick(button, true));
+        renderIndicadorEconomia(indicador, cache.relatorio);
+        ultimoHashIndicador = hash;
+        showModal(cache.relatorio, true, () => handleAnaliseClick(button, true, indicador));
         return;
       }
     }
@@ -1048,13 +1272,66 @@ if (typeof document !== "undefined") {
         );
         return;
       }
-      showModal(relatorio, false, () => handleAnaliseClick(button, true));
+      renderIndicadorEconomia(indicador, relatorio);
+      ultimoHashIndicador = hash;
+      showModal(relatorio, false, () => handleAnaliseClick(button, true, indicador));
     } catch (err) {
       analiseLog("Falha ao calcular a análise —", err.message);
     } finally {
       button.textContent = originalLabel;
       button.style.pointerEvents = "";
     }
+  }
+
+  /**
+   * Actually carries out a { zerar, incrementar } plano (see
+   * construirPlanoAplicacao) on the live results screen. Every row involved
+   * already exists in the DOM -- LigaMagic renders a hidden, fully
+   * interactive row for every card/store pairing it knows about, even ones
+   * currently at 0 units (the "outras cartas disponíveis" list) -- so this
+   * never creates anything, only drives the same controls a user would:
+   * `.delete.item-delete`'s own onclick to zero a row, and the same
+   * `.qty` input + blur the page's own onblur handler listens for to change
+   * one. Zerar first, then incrementar: the two lists never target the same
+   * row (a `zerar` row is always at a store this plano is closing, an
+   * `incrementar` row always at a store staying open), so the order doesn't
+   * matter for correctness, but freeing capacity before adding to it reads
+   * more naturally.
+   */
+  function aplicarPlanoNaTela(plano) {
+    for (const { bloco, linha } of plano.zerar) {
+      const del = document.querySelector(`#item_${bloco}_${linha} .delete.item-delete`);
+      if (del) del.click();
+      else logNotShown("Aplicar Economia (remover carta)", `linha #item_${bloco}_${linha} não encontrada`);
+    }
+    for (const { bloco, linha, qtd } of plano.incrementar) {
+      const input = document.querySelector(`input.qty[data-bloco="${bloco}"][data-linha="${linha}"]`);
+      if (!input) {
+        logNotShown("Aplicar Economia (mover carta)", `input data-bloco=${bloco} data-linha=${linha} não encontrado`);
+        continue;
+      }
+      const atual = parseInt(input.value, 10) || 0;
+      input.value = String(atual + qtd);
+      input.dispatchEvent(new FocusEvent("blur"));
+    }
+  }
+
+  /**
+   * Applies one "Economia de frete por remoção" suggestion, then recomputes
+   * the whole analysis from scratch -- applying one suggestion can change
+   * what's left to suggest (a card that just moved into a store may now
+   * make that store newly closeable, or no longer closeable elsewhere) --
+   * and reopens the modal with the fresh result, same as clicking
+   * "Recalcular" would.
+   */
+  async function aplicarEconomiaRemocao(plano) {
+    aplicarPlanoNaTela(plano);
+    // Gives the page's own onblur/onclick handlers (synchronous, but still
+    // worth a tick) room to finish updating window.CardsOrcamento.item's
+    // own state before it's read back below.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const button = document.getElementById("lgm-analise-economia-btn");
+    if (button) await handleAnaliseClick(button, true);
   }
 
   function initAnaliseEconomia() {
