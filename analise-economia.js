@@ -590,22 +590,11 @@ function formatarRelatorioTexto(relatorio) {
   );
   linhas.push("");
 
-  linhas.push("── Economia de frete por remoção ──");
-  linhas.push(
-    "\"Economiza\" é só a parte por redistribuição (loja fechando e/ou cartas realocadas) -- não inclui " +
-      "o preço da própria carta removida.",
-  );
-  if (relatorio.resultados.length === 0) {
-    linhas.push(
-      "Nenhuma economia por redistribuição encontrada: todas as lojas continuam necessárias mesmo sem " +
-        "as cartas mais caras da lista.",
-    );
+  linhas.push(`── Alertas de frete caro (acima de R$ ${formatarMoeda(relatorio.freteCaroLimiar ?? FRETE_CARO_LIMIAR_PADRAO)}) ──`);
+  if (relatorio.alertasFreteCaro.length === 0) {
+    linhas.push("Nenhuma loja com frete acima do limite configurado.");
   } else {
-    relatorio.resultados.forEach((item, i) => {
-      linhas.push(`${i + 1}. ${item.nome} — economiza R$ ${formatarMoeda(item.economia)} (por redistribuição)`);
-      item.instrucoes.forEach((l) => linhas.push(`   ${l}`));
-      linhas.push("");
-    });
+    relatorio.alertasFreteCaro.forEach((l) => linhas.push(`- ${l.nome}: R$ ${formatarMoeda(l.frete)}`));
   }
   linhas.push("");
 
@@ -622,11 +611,22 @@ function formatarRelatorioTexto(relatorio) {
   }
   linhas.push("");
 
-  linhas.push(`── Alertas de frete caro (acima de R$ ${formatarMoeda(relatorio.freteCaroLimiar ?? FRETE_CARO_LIMIAR_PADRAO)}) ──`);
-  if (relatorio.alertasFreteCaro.length === 0) {
-    linhas.push("Nenhuma loja com frete acima do limite configurado.");
+  linhas.push("── Economia de frete por remoção ──");
+  linhas.push(
+    "\"Economiza\" é só a parte por redistribuição (loja fechando e/ou cartas realocadas) -- não inclui " +
+      "o preço da própria carta removida.",
+  );
+  if (relatorio.resultados.length === 0) {
+    linhas.push(
+      "Nenhuma economia por redistribuição encontrada: todas as lojas continuam necessárias mesmo sem " +
+        "as cartas mais caras da lista.",
+    );
   } else {
-    relatorio.alertasFreteCaro.forEach((l) => linhas.push(`- ${l.nome}: R$ ${formatarMoeda(l.frete)}`));
+    relatorio.resultados.forEach((item, i) => {
+      linhas.push(`${i + 1}. ${item.nome} — economiza R$ ${formatarMoeda(item.economia)} (por redistribuição)`);
+      item.instrucoes.forEach((l) => linhas.push(`   ${l}`));
+      linhas.push("");
+    });
   }
 
   return linhas.join("\n");
@@ -739,9 +739,9 @@ if (typeof document !== "undefined") {
     aviso.style.cssText = "margin-top: 6px; font-size: 11px; color: #888; font-style: italic;";
     aviso.textContent =
       "Estimativa — considera apenas as lojas já presentes neste resultado e assume o frete atual de " +
-      'cada loja. Veja abaixo as três seções: "Economia de frete por remoção" (deixar de comprar uma ' +
-      'carta cara), "Economia por reorganização" (comprar as mesmas cartas em outra loja, sem remover ' +
-      'nada) e "Alertas de frete caro" (lojas cujo frete sozinho já é alto).';
+      'cada loja. Veja abaixo as três seções: "Alertas de frete caro" (lojas cujo frete sozinho já é ' +
+      'alto), "Economia por reorganização" (comprar as mesmas cartas em outra loja, sem remover nada) e ' +
+      '"Economia de frete por remoção" (deixar de comprar uma carta cara).';
     header.appendChild(aviso);
 
     return header;
@@ -798,11 +798,18 @@ if (typeof document !== "undefined") {
     return row;
   }
 
+  // Tinted straight from SAMV_PURPLE (not a separate hardcoded gray) so the
+  // divider both reads clearly against the modal's white body -- the
+  // previous #f7f7f8-on-white pairing was only a ~1.03:1 luminance step,
+  // essentially invisible as a section boundary -- and ties visually to
+  // every other purple control this extension adds. ~4.9:1 text contrast at
+  // 14% opacity, comfortably above the 4.5:1 WCAG AA floor.
   function buildSectionTitle(text) {
     const title = document.createElement("div");
     title.style.cssText =
-      "padding: 10px 20px; font-size: 12px; font-weight: 700; color: #555; background: #f7f7f8; " +
-      "border-bottom: 1px solid #eee; text-transform: uppercase; letter-spacing: 0.02em;";
+      `padding: 10px 20px; font-size: 12px; font-weight: 700; color: ${SAMV_PURPLE}; ` +
+      "background: rgba(109, 79, 196, 0.14); border-bottom: 1px solid rgba(109, 79, 196, 0.35); " +
+      "text-transform: uppercase; letter-spacing: 0.02em;";
     title.textContent = text;
     return title;
   }
@@ -840,19 +847,12 @@ if (typeof document !== "undefined") {
     const body = document.createElement("div");
     body.style.cssText = "overflow-y: auto; flex: 1;";
 
-    body.appendChild(buildSectionTitle("Economia de frete por remoção"));
-    if (relatorio.resultados.length === 0) {
-      body.appendChild(
-        buildEmptyMessage(
-          "Nenhuma economia por redistribuição encontrada: todas as lojas deste resultado continuam " +
-            "necessárias mesmo sem as cartas mais caras da lista.",
-        ),
-      );
+    const limiar = relatorio.freteCaroLimiar ?? FRETE_CARO_LIMIAR_PADRAO;
+    body.appendChild(buildSectionTitle(`Alertas de frete caro (acima de R$ ${formatarMoeda(limiar)})`));
+    if (relatorio.alertasFreteCaro.length === 0) {
+      body.appendChild(buildEmptyMessage("Nenhuma loja com frete acima do valor configurado no painel da extensão."));
     } else {
-      const tooltip =
-        "Economia por redistribuição: não inclui o preço da própria carta, só o que sobra de fechar " +
-        "loja(s) e/ou realocar as outras cartas para ofertas mais baratas.";
-      relatorio.resultados.forEach((item) => body.appendChild(buildRow(item, tooltip)));
+      relatorio.alertasFreteCaro.forEach((item) => body.appendChild(buildAlertaFreteCaroRow(item)));
     }
 
     body.appendChild(buildSectionTitle("Economia por reorganização"));
@@ -870,12 +870,19 @@ if (typeof document !== "undefined") {
       relatorio.reorganizacoes.forEach((item) => body.appendChild(buildRow(item, tooltip)));
     }
 
-    const limiar = relatorio.freteCaroLimiar ?? FRETE_CARO_LIMIAR_PADRAO;
-    body.appendChild(buildSectionTitle(`Alertas de frete caro (acima de R$ ${formatarMoeda(limiar)})`));
-    if (relatorio.alertasFreteCaro.length === 0) {
-      body.appendChild(buildEmptyMessage("Nenhuma loja com frete acima do valor configurado no painel da extensão."));
+    body.appendChild(buildSectionTitle("Economia de frete por remoção"));
+    if (relatorio.resultados.length === 0) {
+      body.appendChild(
+        buildEmptyMessage(
+          "Nenhuma economia por redistribuição encontrada: todas as lojas deste resultado continuam " +
+            "necessárias mesmo sem as cartas mais caras da lista.",
+        ),
+      );
     } else {
-      relatorio.alertasFreteCaro.forEach((item) => body.appendChild(buildAlertaFreteCaroRow(item)));
+      const tooltip =
+        "Economia por redistribuição: não inclui o preço da própria carta, só o que sobra de fechar " +
+        "loja(s) e/ou realocar as outras cartas para ofertas mais baratas.";
+      relatorio.resultados.forEach((item) => body.appendChild(buildRow(item, tooltip)));
     }
 
     return body;

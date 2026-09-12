@@ -28,7 +28,7 @@ Tudo é opcional: cada recurso abaixo pode ser ligado ou desligado no painel da 
 
 ### Compra por Lista — onde o dinheiro é decidido
 - **Análise de Economia.** Três seções: quanto você economizaria deixando de comprar cada carta cara (considerando o frete), quanto economizaria comprando as mesmas cartas em outra loja para fechar uma loja inteira sem deixar nada de fora, e quais lojas têm frete acima do valor que você configurar.
-- **Alerta de frete caro.** Destaca em vermelho o frete de uma loja acima do valor configurado (padrão R$ 30) e mostra um aviso sugerindo bloquear a loja e pesquisar de novo.
+- **Alerta de frete caro.** Destaca em vermelho o frete de uma loja acima do valor configurado (padrão R$ 35) e mostra um aviso sugerindo bloquear a loja e pesquisar de novo.
 - **Filtros que já vêm prontos.** Idiomas, extras, qualidade e as opções de "ignorar sem estoque" / "ignorar pré-venda" aplicados automaticamente ao carregar a página. Se preferir, a extensão só lembra da sua última seleção manual — e há um botão **"Carregar filtro padrão"** pra aplicar sob demanda.
 - **Busca em lojas customizadas.** Cole a URL de qualquer loja da Liga pra incluí-la na busca, sem mexer nos seus favoritos reais. As lojas ficam salvas numa lista própria, prontas pra marcar ou desmarcar depois.
 - **Copiar Lista de Compras.** Um botão ao lado de "Finalizar Compra" copia as cartas que sobraram no resultado (já refletindo o que você removeu na tela), separadas por loja, em formato de lista de Magic. Opcionalmente com versão, qualidade, idioma e preço.

@@ -1639,7 +1639,7 @@ const DEFAULT_SETTINGS = {
   addCopyListaButton: true, // whether the "Copiar Lista de Compras" button is injected into Compra por Lista results
   addAnaliseEconomia: true, // whether the "Análise de Economia" button is injected into Compra por Lista results
   addFreteCaroAlert: true, // whether an expensive store's shipping fee is highlighted on Compra por Lista results
-  freteCaroLimiar: 30, // shipping fee (R$) above which a store is flagged as expensive, both by addFreteCaroAlert and inside the Análise de Economia modal
+  freteCaroLimiar: 35, // shipping fee (R$) above which a store is flagged as expensive, both by addFreteCaroAlert and inside the Análise de Economia modal
   // Cached result of the last economy analysis, keyed by a cheap fingerprint
   // of the search result it was computed from (see hashResultado in
   // analise-economia.js), so reopening the modal on an unchanged result

@@ -94,7 +94,7 @@ const SAMV_FRETE_CARO_TEXT = "#ffffff";
 // kept here (not duplicated as a local const in each file that needs it)
 // since every LigaMagic-side content script shares one JS realm per tab,
 // so a top-level const can only be declared once across all of them.
-const FRETE_CARO_LIMIAR_PADRAO = 30;
+const FRETE_CARO_LIMIAR_PADRAO = 35;
 
 /**
  * Paints one injected control, either filled (purple background, light text)

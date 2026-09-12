@@ -83,7 +83,7 @@ página individual da carta
   economizar o frete dela) e "Alertas de frete caro" (lojas cujo frete
   sozinho já está acima do valor configurado no painel)
 - Alerta de frete caro — destaca em vermelho o frete de uma loja acima do
-  valor configurado no painel (padrão R$ 30) e mostra um aviso temporário
+  valor configurado no painel (padrão R$ 35) e mostra um aviso temporário
   sugerindo bloquear a loja e pesquisar de novo
 
 ### Carrinho — `?view=mp/carrinho`
