@@ -13,24 +13,64 @@
  * cards aren't actually part of the deck (same board data — and the same
  * "not counted" rule — deck-view.js uses for the price total/tooltip).
  *
- * Copies in whichever order is currently on screen when that order is one
- * getDeckBoards() can read reliably (Padrão or this extension's own "Preço"
- * tab — see getActiveCopyableBoardsSource's own doc comment for why the
- * other native views stay on the Padrão fallback instead).
+ * Copies in whichever order is currently on screen — see
+ * getActiveDeckViewInfo's own doc comment (deck-view.js) for the two ways
+ * that order gets read (Padrão/Preço's clean board split, vs. Cor/Custo/
+ * Raridade's flat row list with Maybeboard excluded by name instead) and
+ * why Visual/CMC/Grid fall back to Padrão instead of reading their own
+ * order (they render an image grid, not a text list).
  *
  * Depends on: content-utils.js (log, cardNameFromHref, showCopiedFeedback,
  * applySamvStyle),
  * scraper-deck.js (isDeckPage), deck-view.js (getDeckBoards,
- * getActiveCopyableBoardsSource)
+ * getActiveDeckViewInfo)
  */
 
-function buildDeckListText(deckId) {
-  const source = getActiveCopyableBoardsSource(deckId);
-  const boards = getDeckBoards(deckId, source).filter(
-    (board) => board.label.toLowerCase() !== "maybeboard",
-  );
+/**
+ * Card names (via cardNameFromHref, the same stable `card=` query-param
+ * identifier every board-reading function here uses — never the display
+ * text, which is exactly the kind of thing that's turned out inconsistent
+ * between LigaMagic's own widgets before) that Padrão itself lists under a
+ * "Maybeboard" board and nowhere else. The "and nowhere else" part matters:
+ * if the same card also genuinely appears in Mainboard/Sideboard, it must
+ * still be copied — this only excludes a name that's exclusively a
+ * Maybeboard entry.
+ */
+function getMaybeboardExclusionNames(deckId) {
+  const boards = getDeckBoards(deckId); // defaults to Padrão — see its own doc comment
+  const maybeNames = new Set();
+  const keepNames = new Set();
+  boards.forEach((board) => {
+    const isMaybe = board.label.toLowerCase() === "maybeboard";
+    board.el.querySelectorAll(":scope > .deck-line").forEach((row) => {
+      const link = row.querySelector(".deck-card a");
+      const name = link && cardNameFromHref(link.getAttribute("href"));
+      if (!name) return;
+      (isMaybe ? maybeNames : keepNames).add(name);
+    });
+  });
+  keepNames.forEach((name) => maybeNames.delete(name));
+  return maybeNames;
+}
 
+function buildDeckListText(deckId) {
+  const { kind, el } = getActiveDeckViewInfo(deckId);
   const lines = [];
+
+  if (kind === "flat") {
+    const exclude = getMaybeboardExclusionNames(deckId);
+    el.querySelectorAll(".deck-line").forEach((row) => {
+      const link = row.querySelector(".deck-card a");
+      if (!link) return;
+      const name = cardNameFromHref(link.getAttribute("href"));
+      if (!name || exclude.has(name)) return;
+      const qty = parseInt(row.querySelector(".deck-qty")?.textContent?.trim(), 10) || 1;
+      lines.push(`${qty} ${name}`);
+    });
+    return lines.join("\n");
+  }
+
+  const boards = getDeckBoards(deckId, el).filter((board) => board.label.toLowerCase() !== "maybeboard");
   boards.forEach((board) => {
     board.el.querySelectorAll(":scope > .deck-line").forEach((row) => {
       const link = row.querySelector(".deck-card a");

@@ -107,7 +107,17 @@ function buildPriceView(deckId) {
     headerRow.className = "deck-line";
     const headerType = document.createElement("div");
     headerType.className = "deck-type deck-type-first";
-    headerType.textContent = `${board.label} (${sorted.length})`;
+    // Two separate nodes (a text node for the label, an <i> for the count)
+    // rather than one interpolated string — confirmed live this is exactly
+    // Padrão's own markup shape ("Maybeboard <i>(1)</i>"), and getDeckBoards'
+    // label extraction specifically reads the text-node child alone. A
+    // single concatenated "Maybeboard (1)" string parsed back as the whole
+    // label, so its own board never matched the plain "maybeboard" check
+    // and was never excluded from "Copiar Deck" on this tab.
+    headerType.appendChild(document.createTextNode(`${board.label} `));
+    const headerCount = document.createElement("i");
+    headerCount.textContent = `(${sorted.length})`;
+    headerType.appendChild(headerCount);
     headerRow.appendChild(headerType);
     wrap.appendChild(headerRow);
 
@@ -140,25 +150,44 @@ function selectPriceView(deckId) {
   repaintPriceTab(deckId);
 }
 
+// Native view ids whose .deck-line rows are real text (Cor/Custo/Raridade),
+// as opposed to Visual/CMC(6)/Grid, which render an image grid with no
+// .deck-line at all. Confirmed live: these three concatenate each board's
+// own category breakdown one after another with no hr.pdeck-maybe boundary
+// between them (a maybeboard land shows up as its own second "Terrenos"
+// header block right after the mainboard one, not merged into it) — so the
+// board boundary genuinely isn't there positionally, only the category
+// labels repeat.
+const FLAT_TEXT_VIEW_IDS = [2, 3, 4];
+
 /**
- * The board source "Copiar Deck" should read from: Padrão and Preço are the
- * only two views built on the cleanly-separated Mainboard/Sideboard/
- * Maybeboard structure getDeckBoards() understands — Preço is a clone of
- * Padrão's own rows, just reordered by price, so it carries that same shape
- * over. Every other native view (Cor/Custo/Raridade/Visual/CMC/Grid) either
- * merges those boards together with no way to tell them apart (confirmed
- * live: Cor/Custo/Raridade list everything under one "Main Deck" heading,
- * no hr.pdeck-maybe boundary) or isn't a text list at all (Visual/CMC/Grid
- * render an image grid, no .deck-line rows to read a quantity/name from) —
- * Padrão stays the source for all of those, same as before this existed.
+ * Which view "Copiar Deck" should read from, and how.
+ *
+ * - "boarded": Padrão or Preço — both keep Mainboard/Sideboard/Maybeboard in
+ *   cleanly separated containers getDeckBoards() already understands
+ *   (Preço is a clone of Padrão's own rows, just reordered by price).
+ * - "flat": Cor/Custo/Raridade — real .deck-line rows in the order shown,
+ *   but with no hr.pdeck-maybe boundary to exclude Maybeboard by position.
+ *   deck-copy-button.js instead cross-references each row's card name
+ *   against the names Padrão itself lists as Maybeboard-only.
+ *
+ * Falls back to Padrão ("boarded") for every other case — including
+ * Visual/CMC/Grid, which render an image grid with no .deck-line rows to
+ * read a quantity/name from at all.
  */
-function getActiveCopyableBoardsSource(deckId) {
+function getActiveDeckViewInfo(deckId) {
   const priceTab = document.getElementById(`dk-tab-price-${deckId}`);
   if (priceTab?.classList.contains("tab-selected")) {
     const priceView = document.getElementById(`dk-val-price-${deckId}`);
-    if (priceView) return priceView;
+    if (priceView) return { kind: "boarded", el: priceView };
   }
-  return document.getElementById(`dk-val-1-${deckId}`);
+  for (const n of FLAT_TEXT_VIEW_IDS) {
+    const tab = document.getElementById(`dk-tab-${n}-${deckId}`);
+    if (!tab?.classList.contains("tab-selected")) continue;
+    const view = document.getElementById(`dk-val-${n}-${deckId}`);
+    if (view) return { kind: "flat", el: view };
+  }
+  return { kind: "boarded", el: document.getElementById(`dk-val-1-${deckId}`) };
 }
 
 /**
