@@ -2,7 +2,10 @@
  * Adds each card's price and price-band grouping to the "Comprar Deck" modal
  * on a LigaMagic deck page (`#popupBuyDeck`, filled asynchronously via
  * viewdeck.buy() with a POST to /ajax/decks/decks.php), gated by the
- * "addBuyModalPriceGrouping" setting.
+ * "addBuyModalPriceGrouping" setting. Also adds a running total of the
+ * currently selected (checked) cards above the shared "Pesquisar" button,
+ * and a checkbox on each band's own divider that checks/unchecks every
+ * card in that band at once.
  *
  * The modal groups its cards into one or more `.buy-cards` boxes under
  * `#buy-data` — confirmed live: a deck with only a Mainboard renders a single
@@ -33,6 +36,8 @@
 
 const BUY_PRICE_BADGE_CLASS = "lm-ext-buy-price";
 const BUY_BAND_DIVIDER_CLASS = "lm-ext-buy-band";
+const BUY_BAND_CHECKBOX_CLASS = "lm-ext-buy-band-check";
+const BUY_TOTAL_ID = "lm-ext-buy-total";
 
 // Upper bound (exclusive) of each finite price band, in R$. Two more bands
 // are handled separately below: an open-ended "1000+" band for anything at
@@ -85,20 +90,54 @@ function buildPriceBadge(price) {
   return span;
 }
 
-/** Same border-top divider style deck-grid-prices.js's buildPriceBlock already uses. */
-function buildBandDivider(label) {
-  const div = document.createElement("div");
-  div.className = BUY_BAND_DIVIDER_CLASS;
-  div.textContent = label;
-  Object.assign(div.style, {
+/**
+ * Same border-top divider style deck-grid-prices.js's buildPriceBlock
+ * already uses, plus a checkbox that checks/unchecks every row in this band
+ * at once -- driven the same way the native "select all" header checkbox
+ * drives buydeck.selAll(): calling .click() on each row's real checkbox
+ * (never setting .checked directly), so the site's own buydeck.sel() runs
+ * exactly as if the user had clicked each one, keeping the item-sel/
+ * item-notsel class and quantity handling in sync with the native code.
+ *
+ * `rows` is kept on the checkbox itself (not a closure array copy) so
+ * recomputeBuyModalTotal() can later read it back to sync this checkbox's
+ * own checked/indeterminate state from the rows' current state.
+ */
+function buildBandDivider(label, rows) {
+  const wrapper = document.createElement("label");
+  wrapper.className = BUY_BAND_DIVIDER_CLASS;
+  Object.assign(wrapper.style, {
     margin: "6px 0 4px",
     paddingTop: "4px",
     borderTop: `1px solid ${SAMV_PURPLE}`,
     fontSize: "11px",
     fontWeight: "700",
     color: SAMV_PURPLE,
+    display: "flex",
+    alignItems: "center",
+    gap: "6px",
+    cursor: "pointer",
   });
-  return div;
+
+  const checkbox = document.createElement("input");
+  checkbox.type = "checkbox";
+  checkbox.className = BUY_BAND_CHECKBOX_CLASS;
+  checkbox.lmBandRows = rows;
+  const rowCheckboxes = () => rows.map((row) => row.querySelector('input[type="checkbox"]')).filter(Boolean);
+  checkbox.checked = rowCheckboxes().every((cb) => cb.checked);
+  checkbox.addEventListener("click", () => {
+    const desired = checkbox.checked; // already toggled by the click's default action
+    rowCheckboxes().forEach((cb) => {
+      if (cb.checked !== desired) cb.click();
+    });
+  });
+  wrapper.appendChild(checkbox);
+
+  const text = document.createElement("span");
+  text.textContent = label;
+  wrapper.appendChild(text);
+
+  return wrapper;
 }
 
 /**
@@ -144,24 +183,149 @@ function applyPriceGroupingToGroup(group, priceMap) {
     const name = link && cardNameFromHref(link.getAttribute("href"));
     const price = name ? (priceMap.get(name) ?? null) : null;
     if (link) link.insertAdjacentElement("afterend", buildPriceBadge(price));
+    // Read back by recomputeBuyModalTotal() -- avoids re-deriving the name/
+    // price lookup on every checkbox click or keystroke.
+    row.dataset.lmPrice = price != null ? String(price) : "";
     return { row, price };
   });
 
   // Cards with no price (price === null) sort last, exactly where the
-  // trailing "Sem preço" band belongs.
+  // trailing "Sem preço" band belongs. Sorting by price (not band) also
+  // keeps cards within the same band in ascending order, and since band
+  // index is monotonic with price, every band still comes out contiguous.
   rowInfos.sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity));
 
-  let lastBand = null;
+  // Chunk into contiguous same-band runs (rowInfos is already sorted by
+  // band, so a band can never split into two separate runs) so each band's
+  // own divider checkbox knows exactly which rows belong to it.
+  const chunks = [];
   rowInfos.forEach(({ row, price }) => {
     const band = buyPriceBandIndex(price);
-    if (band !== lastBand) {
-      group.appendChild(buildBandDivider(buyPriceBandLabel(band)));
-      lastBand = band;
+    const chunk = chunks.at(-1);
+    if (!chunk || chunk.band !== band) {
+      chunks.push({ band, rows: [row] });
+    } else {
+      chunk.rows.push(row);
     }
-    group.appendChild(row);
+  });
+
+  chunks.forEach(({ band, rows: bandRows }) => {
+    group.appendChild(buildBandDivider(buyPriceBandLabel(band), bandRows));
+    bandRows.forEach((row) => group.appendChild(row));
   });
 
   return true;
+}
+
+/**
+ * A running total of every selected (checked) row's price × quantity,
+ * shown once above the shared "Pesquisar" button -- one figure covering
+ * every group (Mainboard + Sideboard alike), since a single click on that
+ * button submits the whole selection across all of them.
+ */
+function buildTotalDisplay() {
+  const div = document.createElement("div");
+  div.id = BUY_TOTAL_ID;
+  Object.assign(div.style, {
+    textAlign: "center",
+    fontSize: "13px",
+    fontWeight: "700",
+    color: SAMV_PURPLE,
+    padding: "6px 0",
+  });
+  return div;
+}
+
+/**
+ * The "Pesquisar" button's own wrapper (`.box.p10`) is #buy-data's last
+ * child, appended once after every `.buy-cards` group -- confirmed live.
+ * Inserting right before it, rather than just appending to #buy-data, is
+ * what puts the total right above that button regardless of how many
+ * groups (Mainboard/Sideboard) came before it.
+ */
+function ensureTotalDisplay(buyData) {
+  let el = document.getElementById(BUY_TOTAL_ID);
+  if (el) return el;
+
+  el = buildTotalDisplay();
+  const pesquisarWrapper = [...buyData.children].find((child) => child.querySelector('input[onclick*="buydeck.go"]'));
+  if (pesquisarWrapper) {
+    pesquisarWrapper.insertAdjacentElement("beforebegin", el);
+  } else {
+    // "Pesquisar" hasn't rendered yet (or its markup changed) -- still show
+    // the total somewhere rather than silently dropping it.
+    logNotShown(
+      "Total selecionado (posição)",
+      'botão "Pesquisar" (input[onclick*=buydeck.go]) não encontrado em #buy-data',
+    );
+    buyData.appendChild(el);
+  }
+  return el;
+}
+
+/**
+ * Recomputes the selected-cards total and keeps every band checkbox in
+ * sync with its own rows' current checked state -- runs on every click
+ * (row checkbox, +/-, band checkbox, native "select all") or keystroke
+ * (typing a quantity) inside #buy-data, via one delegated, debounced
+ * listener (see wireBuyModalInteractions) instead of one listener per row.
+ */
+function recomputeBuyModalTotal(buyData) {
+  let total = 0;
+  let algumSemPreco = false;
+
+  buyData.querySelectorAll(".cards-item").forEach((row) => {
+    const checkbox = row.querySelector('input[type="checkbox"]');
+    if (!checkbox?.checked) return;
+    if (row.dataset.lmPrice === "") {
+      algumSemPreco = true;
+      return;
+    }
+    const qty = parseInt(row.querySelector(".c-qty")?.value, 10) || 0;
+    total += Number(row.dataset.lmPrice) * qty;
+  });
+
+  const el = ensureTotalDisplay(buyData);
+  el.textContent =
+    `Total selecionado: ${fmtBuyPrice(total)}` + (algumSemPreco ? " (não inclui cartas sem preço)" : "");
+
+  buyData.querySelectorAll(`.${BUY_BAND_CHECKBOX_CLASS}`).forEach((bandCheckbox) => {
+    const rowCheckboxes = (bandCheckbox.lmBandRows ?? [])
+      .map((row) => row.querySelector('input[type="checkbox"]'))
+      .filter(Boolean);
+    if (rowCheckboxes.length === 0) return;
+    const allChecked = rowCheckboxes.every((cb) => cb.checked);
+    const noneChecked = rowCheckboxes.every((cb) => !cb.checked);
+    bandCheckbox.checked = allChecked;
+    bandCheckbox.indeterminate = !allChecked && !noneChecked;
+  });
+}
+
+/**
+ * One delegated, debounced listener for the whole modal instead of one per
+ * row: "click" catches every checkbox/+/-/band-checkbox/"select all"
+ * interaction (each of those already ran its own native handler by the
+ * time this fires, since delegation only sees the bubbling phase), "input"
+ * catches a quantity typed directly into a `.c-qty` field. Debounced
+ * (via a zero-delay timeout, just enough to coalesce synchronous follow-up
+ * clicks into one macrotask) because a band checkbox click synchronously
+ * clicks every row checkbox in that band in a single pass (see
+ * buildBandDivider) -- without this, one band toggle would recompute once
+ * per row it touched instead of once overall.
+ */
+function wireBuyModalInteractions(buyData) {
+  if (buyData.dataset.lmTotalWired === "1") return;
+  buyData.dataset.lmTotalWired = "1";
+
+  let debounceTimer = null;
+  const scheduleRecompute = () => {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => recomputeBuyModalTotal(buyData), 0);
+  };
+
+  buyData.addEventListener("click", scheduleRecompute);
+  buyData.addEventListener("input", scheduleRecompute);
+  recomputeBuyModalTotal(buyData);
 }
 
 /**
@@ -190,6 +354,8 @@ function processBuyModalGroups(buyData, deckId) {
     }
   });
   if (processed > 0) log(`Modal de compra: ${processed} grupo(s) de cards ordenado(s) por preço.`);
+
+  wireBuyModalInteractions(buyData);
 }
 
 function attachBuyModalObserver(buyData, deckId) {
