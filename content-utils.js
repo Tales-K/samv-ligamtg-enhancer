@@ -84,6 +84,18 @@ const SAMV_PRICE_MIN_COLOR = "#33ac5f";
 const SAMV_PRICE_AVG_COLOR = "#cfad25";
 const SAMV_PRICE_MAX_COLOR = "#c73b3b";
 
+// Used to flag an expensive shipping fee (see frete-caro-alert.js and
+// analise-economia.js's own "Alertas de frete caro" section) as white text
+// on a filled background — contrast ratio ~6.5:1 against white text,
+// comfortably above the WCAG AA 4.5:1 floor for normal-size text.
+const SAMV_FRETE_CARO_BG = "#b91c1c";
+const SAMV_FRETE_CARO_TEXT = "#ffffff";
+// Fallback used only if the "freteCaroLimiar" setting hasn't loaded yet —
+// kept here (not duplicated as a local const in each file that needs it)
+// since every LigaMagic-side content script shares one JS realm per tab,
+// so a top-level const can only be declared once across all of them.
+const FRETE_CARO_LIMIAR_PADRAO = 30;
+
 /**
  * Paints one injected control, either filled (purple background, light text)
  * or hollow (transparent background, purple text) — the same pair the site's

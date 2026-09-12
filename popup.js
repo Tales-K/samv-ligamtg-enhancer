@@ -148,11 +148,13 @@ document.addEventListener("DOMContentLoaded", () => {
     "enableCustomStoreSearch",
     "addCopyListaButton",
     "addAnaliseEconomia",
+    "addFreteCaroAlert",
     "addCarrinhoCopyButton",
     "showDebugLogs",
   ];
   const selectIds = ["defaultDeckView"];
   const textIds = ["scryfallDefaultFilter"];
+  const numberIds = ["freteCaroLimiar"];
 
   // Load saved settings and populate checkboxes / selects.
   chrome.runtime.sendMessage({ action: "getSettings" }, (settings) => {
@@ -161,6 +163,10 @@ document.addEventListener("DOMContentLoaded", () => {
       if (el) el.checked = settings[id] ?? false;
     });
     [...selectIds, ...textIds].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.value = settings[id] ?? "";
+    });
+    numberIds.forEach((id) => {
       const el = document.getElementById(id);
       if (el) el.value = settings[id] ?? "";
     });
@@ -207,6 +213,21 @@ document.addEventListener("DOMContentLoaded", () => {
       chrome.runtime.sendMessage({
         action: "saveSettings",
         settings: { [id]: e.target.value.trim() },
+      });
+    });
+  });
+
+  // Same "save on input" behavior as text fields, but parsed as a number —
+  // a non-numeric or empty value is dropped rather than saved, so the
+  // background's own default (see DEFAULT_SETTINGS) takes over instead of
+  // persisting NaN.
+  numberIds.forEach((id) => {
+    document.getElementById(id)?.addEventListener("input", (e) => {
+      const value = Number(e.target.value);
+      if (e.target.value.trim() === "" || Number.isNaN(value)) return;
+      chrome.runtime.sendMessage({
+        action: "saveSettings",
+        settings: { [id]: value },
       });
     });
   });

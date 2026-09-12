@@ -760,9 +760,17 @@
                 <input type="checkbox" id="addCopyListaButton" />
                 <label for="addCopyListaButton">Botão "Copiar Lista de Compras"</label>
               </div>
-              <div class="settings-row" title="Adiciona o botão 'Análise de Economia' na tela de resultados da 'Compra por Lista', que estima quanto você economizaria deixando de comprar cada carta cara (considerando o frete das lojas envolvidas).">
+              <div class="settings-row" title="Adiciona o botão 'Análise de Economia' na tela de resultados da 'Compra por Lista', que estima quanto você economizaria deixando de comprar cada carta cara (considerando o frete das lojas envolvidas), redistribuindo cartas entre lojas ou evitando fretes caros.">
                 <input type="checkbox" id="addAnaliseEconomia" />
                 <label for="addAnaliseEconomia">Botão "Análise de Economia"</label>
+              </div>
+              <div class="settings-row" title="Destaca em vermelho o frete de uma loja acima do valor configurado ao lado, na tela de resultados da 'Compra por Lista', com um aviso sugerindo bloquear a loja e pesquisar de novo.">
+                <input type="checkbox" id="addFreteCaroAlert" />
+                <label for="addFreteCaroAlert">Alerta de frete caro</label>
+              </div>
+              <div class="settings-row settings-row-select" title="Valor de frete (R$) a partir do qual uma loja é considerada cara — usado pelo alerta acima e pelos alertas de frete caro dentro da 'Análise de Economia'.">
+                <label for="freteCaroLimiar">Frete caro a partir de (R$)</label>
+                <input type="number" id="freteCaroLimiar" min="0" step="1" placeholder="30" />
               </div>
             </div>
 

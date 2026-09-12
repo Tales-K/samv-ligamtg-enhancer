@@ -277,6 +277,106 @@ function analisarFechamentosCandidato(consolidado, card) {
   return { economia, lojasFechando };
 }
 
+// ── Reorganização (close a store without dropping any card) ────────────────────
+/**
+ * For one store that's really selling at least one card in the current
+ * cart, checks whether EVERY card it sells could instead be bought from
+ * some other store already in this same result (even at a higher price) --
+ * without dropping any card from the purchase at all. If the shipping saved
+ * by no longer needing this store outweighs however much more those cards
+ * cost elsewhere, closing it via reorganization is a real saving with
+ * nothing removed from the list -- unlike analisarFechamentosCandidato
+ * above, which only ever considers closing a store as a side effect of
+ * dropping ONE expensive/exclusive candidate card. Here the store itself is
+ * the subject: every one of its own real cards is treated as needing to
+ * move at once, whether or not any single one of them would individually
+ * have been worth analyzing as a candidate.
+ *
+ * Still deliberately LOCAL, for the same reason as the rest of this file:
+ * only stores already present in this result are considered as a
+ * destination, and only this one store is considered for closing per call
+ * -- no whole-cart re-solve.
+ *
+ * Returns null if this store can't be fully vacated (something it sells is
+ * exclusive to it, so relocating it fails) or if doing so wouldn't actually
+ * save money net of the relocation cost.
+ */
+function analisarReorganizacaoLoja(consolidado, loja) {
+  const cartasLoja = consolidado.cartasPorLoja.get(loja.nome) ?? new Map();
+  if (cartasLoja.size === 0) return null; // nothing really bought here today
+
+  const lojasAbertas = new Set(consolidado.lojas.map((l) => l.nome).filter((nome) => nome !== loja.nome));
+
+  let somaDeltas = 0;
+  const realocacoes = [];
+  for (const [chave, info] of cartasLoja) {
+    const preenchido = preencherCarta(consolidado, chave, lojasAbertas, info.qtd);
+    if (!preenchido) return null; // exclusive to this store -- can't vacate it
+    const delta = preenchido.custo - info.valor;
+    somaDeltas += delta;
+    realocacoes.push({
+      nome: info.nome,
+      qtd: info.qtd,
+      precoAntes: info.valor,
+      precoDepois: preenchido.custo,
+      delta,
+      destino: [...preenchido.porLoja], // can span more than one destination store, see preencherCarta
+    });
+  }
+
+  const economia = loja.frete - somaDeltas;
+  if (economia <= ANALISE_ECONOMIA_MINIMA) return null;
+
+  return { nome: loja.nome, frete: loja.frete, realocacoes, somaDeltas, economia };
+}
+
+/** Every store worth reorganizing away, most savings first. */
+function selecionarReorganizacoes(consolidado) {
+  const resultados = [];
+  for (const loja of consolidado.lojas) {
+    const analise = analisarReorganizacaoLoja(consolidado, loja);
+    if (analise) resultados.push(analise);
+  }
+  resultados.sort((a, b) => b.economia - a.economia);
+  return resultados;
+}
+
+/** Human-readable step-by-step for a reorganization: nothing is dropped, only moved. */
+function construirInstrucoesReorganizacao(reorg, totalAtual) {
+  const linhas = [];
+  linhas.push(`Nenhuma carta precisa deixar de ser comprada — troque só a loja de origem:`);
+
+  for (const realoc of reorg.realocacoes) {
+    const precoUnitarioAntes = realoc.precoAntes / realoc.qtd;
+    for (const [nomeLoja, { qtd: qtdAqui, custo: custoAqui }] of realoc.destino) {
+      const deltaAqui = custoAqui - qtdAqui * precoUnitarioAntes;
+      const sinal = deltaAqui >= 0 ? "aumentando" : "reduzindo";
+      linhas.push(
+        `Retire ${qtdAqui}x "${realoc.nome}" da loja "${reorg.nome}" e compre ${qtdAqui}x em ${nomeLoja}, ` +
+          `${sinal} o custo em R$ ${formatarMoeda(Math.abs(deltaAqui))}.`,
+      );
+    }
+  }
+
+  linhas.push(
+    `A loja "${reorg.nome}" sai da compra sem remover nenhuma carta — economia de R$ ${formatarMoeda(reorg.frete)} em frete.`,
+  );
+
+  const totalDepois = totalAtual - reorg.economia;
+  linhas.push(
+    `Total: R$ ${formatarMoeda(totalAtual)} → R$ ${formatarMoeda(totalDepois)} ` +
+      `(R$ ${formatarMoeda(reorg.economia)} de economia por reorganização).`,
+  );
+  return linhas;
+}
+
+/** Stores whose current shipping fee is above `limiar`, most expensive first. */
+function selecionarLojasFreteCaro(consolidado, limiar) {
+  return consolidado.lojas
+    .filter((l) => typeof l.frete === "number" && l.frete > limiar)
+    .sort((a, b) => b.frete - a.frete);
+}
+
 /**
  * Cards worth analyzing: proportionally significant to this specific
  * purchase -- a R$5 card matters in a R$100 purchase and doesn't in a
@@ -381,8 +481,17 @@ const ANALISE_ECONOMIA_MINIMA = 0.01;
  * really bought from, so this is cheap (no 2^n subset search of any kind)
  * and yields periodically just so a long candidate list doesn't block the
  * tab outright.
+ *
+ * Returns three independent sections, never mixed together:
+ *   - resultados: "Economia de frete por remoção" -- drop an expensive/
+ *     exclusive card, see analisarFechamentosCandidato.
+ *   - reorganizacoes: "Economia por reorganização" -- keep buying every
+ *     card, just from a different store, see analisarReorganizacaoLoja.
+ *   - alertasFreteCaro: stores whose shipping fee alone is above
+ *     `freteCaroLimiar`, regardless of whether either analysis above found
+ *     anything to do about it.
  */
-async function analisarEconomiaAsync(resultado) {
+async function analisarEconomiaAsync(resultado, freteCaroLimiar = FRETE_CARO_LIMIAR_PADRAO) {
   const consolidado = consolidarResultado(resultado);
 
   const totalCardsAtual = consolidado.cards.reduce((soma, c) => soma + c.valorAtual, 0);
@@ -396,6 +505,8 @@ async function analisarEconomiaAsync(resultado) {
       totalCardsAtual,
       totalFreteAtual: null,
       resultados: [],
+      reorganizacoes: [],
+      alertasFreteCaro: [],
       lojasSemFrete: consolidado.lojasSemFrete,
     };
   }
@@ -426,15 +537,37 @@ async function analisarEconomiaAsync(resultado) {
     }
     if (i % 5 === 4) await new Promise((resolve) => setTimeout(resolve, 0));
   }
-
   resultados.sort((a, b) => b.economia - a.economia);
-  return { consolidado, baseline: totalAtual, totalCardsAtual, totalFreteAtual, resultados };
+
+  const reorganizacoes = selecionarReorganizacoes(consolidado).map((reorg) => ({
+    nome: reorg.nome,
+    frete: reorg.frete,
+    economia: reorg.economia,
+    instrucoes: construirInstrucoesReorganizacao(reorg, totalAtual),
+  }));
+
+  const alertasFreteCaro = selecionarLojasFreteCaro(consolidado, freteCaroLimiar).map((l) => ({
+    nome: l.nome,
+    frete: l.frete,
+  }));
+
+  return {
+    consolidado,
+    baseline: totalAtual,
+    totalCardsAtual,
+    totalFreteAtual,
+    resultados,
+    reorganizacoes,
+    alertasFreteCaro,
+    freteCaroLimiar,
+  };
 }
 
 // Bumped whenever the report's shape or the meaning of `economia` changes,
 // so a previously-cached analysis (computed under different semantics) is
-// never mistaken for a fresh one and shown as-is.
-const ANALISE_CACHE_VERSION = 4;
+// never mistaken for a fresh one and shown as-is. Bumped to 5 for the new
+// reorganizacoes/alertasFreteCaro sections.
+const ANALISE_CACHE_VERSION = 5;
 
 /** Cheap fingerprint of a search result, to know whether a cached analysis is still current. */
 function hashResultado(resultado) {
@@ -453,12 +586,15 @@ function formatarRelatorioTexto(relatorio) {
       `(${relatorio.consolidado.lojas.length} loja(s), R$ ${formatarMoeda(relatorio.totalFreteAtual)} de frete)`,
   );
   linhas.push(
-    "Estimativa: considera só as lojas já presentes neste resultado e assume o frete atual de cada uma. " +
-      "\"Economiza\" é só a parte por redistribuição (loja fechando e/ou cartas realocadas) -- não inclui " +
-      "o preço da própria carta removida.",
+    "Estimativa: considera só as lojas já presentes neste resultado e assume o frete atual de cada uma.",
   );
   linhas.push("");
 
+  linhas.push("── Economia de frete por remoção ──");
+  linhas.push(
+    "\"Economiza\" é só a parte por redistribuição (loja fechando e/ou cartas realocadas) -- não inclui " +
+      "o preço da própria carta removida.",
+  );
   if (relatorio.resultados.length === 0) {
     linhas.push(
       "Nenhuma economia por redistribuição encontrada: todas as lojas continuam necessárias mesmo sem " +
@@ -470,6 +606,27 @@ function formatarRelatorioTexto(relatorio) {
       item.instrucoes.forEach((l) => linhas.push(`   ${l}`));
       linhas.push("");
     });
+  }
+  linhas.push("");
+
+  linhas.push("── Economia por reorganização ──");
+  linhas.push("Nenhuma carta deixa de ser comprada -- só muda a loja de origem, pra fechar uma loja inteira.");
+  if (relatorio.reorganizacoes.length === 0) {
+    linhas.push("Nenhuma loja pode ser totalmente esvaziada pras outras já presentes neste resultado.");
+  } else {
+    relatorio.reorganizacoes.forEach((item, i) => {
+      linhas.push(`${i + 1}. Fechar "${item.nome}" — economiza R$ ${formatarMoeda(item.economia)}`);
+      item.instrucoes.forEach((l) => linhas.push(`   ${l}`));
+      linhas.push("");
+    });
+  }
+  linhas.push("");
+
+  linhas.push(`── Alertas de frete caro (acima de R$ ${formatarMoeda(relatorio.freteCaroLimiar ?? FRETE_CARO_LIMIAR_PADRAO)}) ──`);
+  if (relatorio.alertasFreteCaro.length === 0) {
+    linhas.push("Nenhuma loja com frete acima do limite configurado.");
+  } else {
+    relatorio.alertasFreteCaro.forEach((l) => linhas.push(`- ${l.nome}: R$ ${formatarMoeda(l.frete)}`));
   }
 
   return linhas.join("\n");
@@ -581,15 +738,17 @@ if (typeof document !== "undefined") {
     const aviso = document.createElement("div");
     aviso.style.cssText = "margin-top: 6px; font-size: 11px; color: #888; font-style: italic;";
     aviso.textContent =
-      'Estimativa — considera apenas as lojas já presentes neste resultado e assume o frete atual de ' +
-      'cada loja. Cada "economiza" abaixo é só a parte por redistribuição (loja fechando e/ou cartas ' +
-      "realocadas), sem contar o preço da própria carta removida.";
+      "Estimativa — considera apenas as lojas já presentes neste resultado e assume o frete atual de " +
+      'cada loja. Veja abaixo as três seções: "Economia de frete por remoção" (deixar de comprar uma ' +
+      'carta cara), "Economia por reorganização" (comprar as mesmas cartas em outra loja, sem remover ' +
+      'nada) e "Alertas de frete caro" (lojas cujo frete sozinho já é alto).';
     header.appendChild(aviso);
 
     return header;
   }
 
-  function buildRow(item) {
+  /** One collapsible accordion row -- shared by both the "remoção" and "reorganização" sections. */
+  function buildRow(item, tooltipEconomia) {
     const row = document.createElement("div");
     row.style.cssText = "border-bottom: 1px solid #eee;";
 
@@ -615,9 +774,7 @@ if (typeof document !== "undefined") {
     const economiaLabel = document.createElement("span");
     economiaLabel.style.cssText = "font-weight: 700; white-space: nowrap; flex-shrink: 0; color: #1a7f37;";
     economiaLabel.textContent = `economiza R$ ${formatarMoeda(item.economia)}`;
-    economiaLabel.title =
-      "Economia por redistribuição: não inclui o preço da própria carta, só o que sobra de fechar " +
-      "loja(s) e/ou realocar as outras cartas para ofertas mais baratas.";
+    economiaLabel.title = tooltipEconomia;
     head.appendChild(economiaLabel);
 
     row.appendChild(head);
@@ -641,21 +798,86 @@ if (typeof document !== "undefined") {
     return row;
   }
 
+  function buildSectionTitle(text) {
+    const title = document.createElement("div");
+    title.style.cssText =
+      "padding: 10px 20px; font-size: 12px; font-weight: 700; color: #555; background: #f7f7f8; " +
+      "border-bottom: 1px solid #eee; text-transform: uppercase; letter-spacing: 0.02em;";
+    title.textContent = text;
+    return title;
+  }
+
+  function buildEmptyMessage(text) {
+    const vazio = document.createElement("div");
+    vazio.style.cssText = "padding: 12px 20px 16px; color: #666; font-size: 12px;";
+    vazio.textContent = text;
+    return vazio;
+  }
+
+  /** A plain, non-collapsible row for one expensive-shipping store. */
+  function buildAlertaFreteCaroRow(item) {
+    const row = document.createElement("div");
+    row.style.cssText =
+      "display: flex; align-items: center; justify-content: space-between; gap: 12px; " +
+      "padding: 8px 20px; border-bottom: 1px solid #f2f2f2; font-size: 13px;";
+
+    const nome = document.createElement("span");
+    nome.textContent = item.nome;
+    nome.style.cssText = "overflow: hidden; text-overflow: ellipsis; white-space: nowrap;";
+    row.appendChild(nome);
+
+    const valor = document.createElement("span");
+    valor.style.cssText =
+      `font-weight: 700; white-space: nowrap; flex-shrink: 0; padding: 1px 8px; border-radius: 4px; ` +
+      `background: ${SAMV_FRETE_CARO_BG}; color: ${SAMV_FRETE_CARO_TEXT};`;
+    valor.textContent = `R$ ${formatarMoeda(item.frete)}`;
+    row.appendChild(valor);
+
+    return row;
+  }
+
   function buildBody(relatorio) {
     const body = document.createElement("div");
     body.style.cssText = "overflow-y: auto; flex: 1;";
 
+    body.appendChild(buildSectionTitle("Economia de frete por remoção"));
     if (relatorio.resultados.length === 0) {
-      const vazio = document.createElement("div");
-      vazio.style.cssText = "padding: 24px 20px; color: #666; text-align: center;";
-      vazio.textContent =
-        "Nenhuma economia por redistribuição encontrada: todas as lojas deste resultado continuam " +
-        "necessárias mesmo sem as cartas mais caras da lista.";
-      body.appendChild(vazio);
-      return body;
+      body.appendChild(
+        buildEmptyMessage(
+          "Nenhuma economia por redistribuição encontrada: todas as lojas deste resultado continuam " +
+            "necessárias mesmo sem as cartas mais caras da lista.",
+        ),
+      );
+    } else {
+      const tooltip =
+        "Economia por redistribuição: não inclui o preço da própria carta, só o que sobra de fechar " +
+        "loja(s) e/ou realocar as outras cartas para ofertas mais baratas.";
+      relatorio.resultados.forEach((item) => body.appendChild(buildRow(item, tooltip)));
     }
 
-    relatorio.resultados.forEach((item) => body.appendChild(buildRow(item)));
+    body.appendChild(buildSectionTitle("Economia por reorganização"));
+    if (relatorio.reorganizacoes.length === 0) {
+      body.appendChild(
+        buildEmptyMessage(
+          "Nenhuma loja pode ser totalmente esvaziada para as outras já presentes neste resultado sem " +
+            "deixar de comprar nenhuma carta.",
+        ),
+      );
+    } else {
+      const tooltip =
+        "Nenhuma carta é removida da compra -- ela só passa a ser comprada em outra loja já presente " +
+        "neste resultado, liberando o frete desta.";
+      relatorio.reorganizacoes.forEach((item) => body.appendChild(buildRow(item, tooltip)));
+    }
+
+    const limiar = relatorio.freteCaroLimiar ?? FRETE_CARO_LIMIAR_PADRAO;
+    body.appendChild(buildSectionTitle(`Alertas de frete caro (acima de R$ ${formatarMoeda(limiar)})`));
+    if (relatorio.alertasFreteCaro.length === 0) {
+      body.appendChild(buildEmptyMessage("Nenhuma loja com frete acima do valor configurado no painel da extensão."));
+    } else {
+      relatorio.alertasFreteCaro.forEach((item) => body.appendChild(buildAlertaFreteCaroRow(item)));
+    }
+
     return body;
   }
 
@@ -775,8 +997,8 @@ if (typeof document !== "undefined") {
     return { abortado: false, resultado: await sendMessage({ action: "getListaResultado" }) };
   }
 
-  async function runAndCache(resultado, hash) {
-    const relatorio = await analisarEconomiaAsync(resultado);
+  async function runAndCache(resultado, hash, freteCaroLimiar) {
+    const relatorio = await analisarEconomiaAsync(resultado, freteCaroLimiar);
     // Only cache a real result -- an incomplete one (missing frete) would
     // otherwise sit in the cache slot under a hash that's likely to be
     // superseded the moment shipping actually finishes calculating anyway.
@@ -795,9 +1017,10 @@ if (typeof document !== "undefined") {
     }
 
     const hash = hashResultado(resultado);
+    const settings = await getSettings();
+    const freteCaroLimiar = Number(settings?.freteCaroLimiar) || FRETE_CARO_LIMIAR_PADRAO;
 
     if (!forcarRecalculo) {
-      const settings = await getSettings();
       const cache = settings?.analiseEconomiaCache;
       if (cache && cache.hash === hash) {
         showModal(cache.relatorio, true, () => handleAnaliseClick(button, true));
@@ -809,7 +1032,7 @@ if (typeof document !== "undefined") {
     button.textContent = "Calculando...";
     button.style.pointerEvents = "none";
     try {
-      const relatorio = await runAndCache(resultado, hash);
+      const relatorio = await runAndCache(resultado, hash, freteCaroLimiar);
       if (relatorio.lojasSemFrete?.length > 0) {
         mostrarAviso(
           "Frete pendente",

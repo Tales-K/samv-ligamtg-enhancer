@@ -73,8 +73,15 @@ página individual da carta
 - Botão "Copiar Lista de Compras" — copia os cards ainda na lista, por loja,
   em formato de lista de Magic (com opções: incluir versão, qualidade, idioma
   e preço de cada carta)
-- Botão "Análise de Economia" — estima quanto se economizaria deixando de
-  comprar cada carta cara, considerando o frete das lojas envolvidas
+- Botão "Análise de Economia" — três seções: "Economia de frete por remoção"
+  (deixar de comprar uma carta cara, considerando o frete das lojas
+  envolvidas), "Economia por reorganização" (comprar as mesmas cartas em
+  outra loja já usada, sem remover nenhuma, pra fechar uma loja inteira e
+  economizar o frete dela) e "Alertas de frete caro" (lojas cujo frete
+  sozinho já está acima do valor configurado no painel)
+- Alerta de frete caro — destaca em vermelho o frete de uma loja acima do
+  valor configurado no painel (padrão R$ 30) e mostra um aviso temporário
+  sugerindo bloquear a loja e pesquisar de novo
 
 ### Carrinho — `?view=mp/carrinho`
 - Botão "Copiar Lista" — copia os cards do carrinho no formato detalhado do
