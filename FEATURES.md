@@ -71,11 +71,12 @@ página individual da carta
 - Usar os últimos valores selecionados manualmente em vez dos padrões
   configurados
 - Botão "Carregar filtro padrão" — aplica os valores configurados sob demanda
-- Busca em lojas customizadas — campo para colar a URL de uma loja e incluí-la
-  na busca sem mexer nos favoritos reais
+- Busca em lojas customizadas — campo para colar o nome, a URL ou o ID de uma
+  loja e incluí-la na busca sem mexer nos favoritos reais
 - Botão "Copiar Lista de Compras" — copia os cards ainda na lista, por loja,
   em formato de lista de Magic (com opções: incluir versão, qualidade, idioma
-  e preço de cada carta)
+  e preço de cada carta); o comentário de cada loja também traz o ID dela e,
+  quando já resolvido, o site
 - Botão "Análise de Economia" — três seções: "Economia de frete por remoção"
   (deixar de comprar uma carta cara, considerando o frete das lojas
   envolvidas), "Economia por reorganização" (comprar as mesmas cartas em
@@ -97,7 +98,8 @@ página individual da carta
 
 ### Carrinho — `?view=mp/carrinho`
 - Botão "Copiar Lista" — copia os cards do carrinho no formato detalhado do
-  LigaMagic (edição, qualidade, idioma, extras)
+  LigaMagic (edição, qualidade, idioma, extras); o comentário de cada loja
+  também traz o ID dela e, quando já resolvido, o site
 
 ---
 

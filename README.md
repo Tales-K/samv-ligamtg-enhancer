@@ -30,8 +30,8 @@ Tudo é opcional: cada recurso abaixo pode ser ligado ou desligado no painel da 
 - **Análise de Economia.** Três seções: quanto você economizaria deixando de comprar cada carta cara (considerando o frete), quanto economizaria comprando as mesmas cartas em outra loja para fechar uma loja inteira sem deixar nada de fora, e quais lojas têm frete acima do valor que você configurar. Uma legenda embaixo do botão avisa automaticamente quanto dá pra economizar por reorganização (sem remover nenhuma carta) assim que o frete termina de calcular, mesmo antes de abrir a análise. Cada sugestão de reorganização ou de "deixar de comprar uma carta" tem um botão **Aplicar Economia** que ajusta as quantidades na tela de resultados pra realizar aquela sugestão e recalcula tudo de novo.
 - **Alerta de frete caro.** Destaca em vermelho o frete de uma loja acima do valor configurado (padrão R$ 35) e mostra um aviso sugerindo bloquear a loja e pesquisar de novo.
 - **Filtros que já vêm prontos.** Idiomas, extras, qualidade e as opções de "ignorar sem estoque" / "ignorar pré-venda" aplicados automaticamente ao carregar a página. Se preferir, a extensão só lembra da sua última seleção manual — e há um botão **"Carregar filtro padrão"** pra aplicar sob demanda.
-- **Busca em lojas customizadas.** Cole a URL de qualquer loja da Liga pra incluí-la na busca, sem mexer nos seus favoritos reais. As lojas ficam salvas numa lista própria, prontas pra marcar ou desmarcar depois.
-- **Copiar Lista de Compras.** Um botão ao lado de "Finalizar Compra" copia as cartas que sobraram no resultado (já refletindo o que você removeu na tela), separadas por loja, em formato de lista de Magic. Opcionalmente com versão, qualidade, idioma e preço.
+- **Busca em lojas customizadas.** Cole o nome, a URL ou o ID de qualquer loja da Liga pra incluí-la na busca, sem mexer nos seus favoritos reais. As lojas ficam salvas numa lista própria, prontas pra marcar ou desmarcar depois.
+- **Copiar Lista de Compras.** Um botão ao lado de "Finalizar Compra" copia as cartas que sobraram no resultado (já refletindo o que você removeu na tela), separadas por loja, em formato de lista de Magic — o comentário de cada loja já traz o ID dela e, quando conhecido, o site. Opcionalmente com versão, qualidade, idioma e preço.
 
 ### Página do deck
 - **Aba "Preço".** Ordena as cartas do deck por valor, sem misturar mainboard, sideboard e maybeboard. Dá pra escolher qual aba abre automaticamente em todo deck.
@@ -45,7 +45,7 @@ Tudo é opcional: cada recurso abaixo pode ser ligado ou desligado no painel da 
 
 ### Prévia da carta (hover) e carrinho
 - Ao passar o mouse sobre o nome de uma carta — no deck, em "Meus Decks" ou na página da carta — aparecem os botões **Scryfall**, **EDHREC** e **Copiar nome**, e o preço mostrado na prévia ganha um fundo claro que facilita a leitura.
-- No carrinho, o botão **"Copiar Lista"** copia os itens no formato detalhado do LigaMagic (edição, qualidade, idioma, extras).
+- No carrinho, o botão **"Copiar Lista"** copia os itens no formato detalhado do LigaMagic (edição, qualidade, idioma, extras) — o comentário de cada loja já traz o ID dela e, quando conhecido, o site.
 
 ---
 

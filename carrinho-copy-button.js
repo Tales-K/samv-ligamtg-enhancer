@@ -19,9 +19,9 @@
  * ([cardtitle], [extrascard], [editioncard], [languagecard], [qualitycard]),
  * so nothing is needed from the page's own JS.
  *
- * Depends on: content-utils.js (log, getSettings, waitForElement,
- * showCopiedFeedback, applySamvStyle), detailed-format.js
- * (buildDetailedLine, buildSectionedText)
+ * Depends on: content-utils.js (log, sendMessage, getSettings,
+ * waitForElement, showCopiedFeedback, applySamvStyle), detailed-format.js
+ * (buildDetailedLine, buildSectionedText, buildStoreSectionTitle)
  */
 
 // ── "Lista de Compras" (the editable table at the top) ────────────────────────
@@ -103,25 +103,41 @@ function readCartRow(row) {
   };
 }
 
-function readCartSections() {
+// Same "mpuser.getStore(<id>)" onclick the store title carries everywhere
+// else on the site (see LIGAMAGIC-ARCHITECTURE.md's "Identidade de loja") --
+// confirmed live to be present here too, on the store block markup this page
+// shares with the "Compra por Lista" results screen.
+const STORE_ID_ONCLICK_RE = /mpuser\.getStore\((\d+)\)/;
+
+function storeIdFromTitleEl(titleEl) {
+  const onclick = titleEl?.getAttribute("onclick") ?? "";
+  return (onclick.match(STORE_ID_ONCLICK_RE) ?? [])[1] ?? null;
+}
+
+function readCartSections(storeCache) {
   return [...document.querySelectorAll(SEL_CART_BLOCK)].map((block) => {
-    const storeName =
-      block.parentElement?.querySelector(SEL_CART_STORE_NAME)?.textContent.trim() ?? "Loja";
+    const titleEl = block.parentElement?.querySelector(SEL_CART_STORE_NAME);
+    const storeName = titleEl?.textContent.trim() ?? "Loja";
+    const storeId = storeIdFromTitleEl(titleEl);
+    if (!storeId) {
+      log(`Copiar Lista: ID da loja "${storeName}" não encontrado no carrinho — comentário ficará sem ID/site.`);
+    }
     const cards = [...block.querySelectorAll(SEL_CART_ROW)].map(readCartRow);
-    return { title: storeName, lines: cards.map(buildDetailedLine) };
+    return { title: buildStoreSectionTitle(storeName, storeId, storeCache), lines: cards.map(buildDetailedLine) };
   });
 }
 
-function buildCarrinhoText() {
+function buildCarrinhoText(storeCache) {
   return buildSectionedText([
     { title: "Lista de Compras", lines: readListaCards().map(buildDetailedLine) },
-    ...readCartSections(),
+    ...readCartSections(storeCache),
   ]);
 }
 
 // ── Button ────────────────────────────────────────────────────────────────────
 async function handleCarrinhoCopyClick(button) {
-  const text = buildCarrinhoText();
+  const storeCache = await sendMessage({ action: "getStoreCache" });
+  const text = buildCarrinhoText(storeCache);
   if (!text) {
     log("Copiar Lista: nada na lista de compras nem no carrinho.");
     return;

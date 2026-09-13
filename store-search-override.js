@@ -1,18 +1,21 @@
 /**
- * Injects a compact "add a store by URL" bar right above the native "Lojas
- * Favoritas" checkbox list on the "Compra por Lista" page
+ * Injects a compact "add a store by name, link or ID" bar right above the
+ * native "Lojas Favoritas" checkbox list on the "Compra por Lista" page
  * (?view=cards/lista), plus a growing checklist of every custom store added
  * so far. Search stays scoped to exactly the checked stores — the account's
  * real favorited stores are never touched.
  *
- * How: resolves the pasted URL to a LigaMagic store ID (background.js —
+ * How: a pasted URL resolves to a LigaMagic store ID (background.js —
  * cached forever per domain after the first resolve, which may need a real,
- * user-visible browser tab to get past the store's own bot-check), then adds
- * it to the checklist. Adding/checking/removing a store never fires a search
- * by itself — it only updates the working set that background.js's
- * `CardsOrcamento.pesquisar()` wrapper picks up. The real search still only
- * happens when the user clicks the site's own "Pesquisar" button, exactly
- * like before this feature existed.
+ * user-visible browser tab to get past the store's own bot-check); a bare
+ * numeric ID resolves the other way around, straight to a same-origin
+ * getStoreData call (no tab, no permission prompt — see handleResolveStoreId
+ * in background.js) since it's already LigaMagic's own identifier. Either
+ * way the result gets added to the checklist. Adding/checking/removing a
+ * store never fires a search by itself — it only updates the working set
+ * that background.js's `CardsOrcamento.pesquisar()` wrapper picks up. The
+ * real search still only happens when the user clicks the site's own
+ * "Pesquisar" button, exactly like before this feature existed.
  *
  * Styling reuses the site's own classes where possible (`.botao` for the
  * button, matching the "Procurar" button in Busca Detalhada) instead of
@@ -44,7 +47,7 @@ function buildBar() {
     <div id="lgm-custom-store-bar" style="display: inline-flex; gap: 4px; align-items: center;">
       <div style="position: relative; width: ${STORE_INPUT_WIDTH};">
         <input type="text" id="lgm-custom-store-input" autocomplete="off"
-          placeholder="nome ou link"
+          placeholder="nome, link ou ID"
           style="width: 100%; box-sizing: border-box; padding: 6px 2px; font-family: inherit; ${INPUT_BORDER_STYLE}">
         <div id="lgm-known-stores-dropdown"
           style="display: none; position: absolute; top: 100%; left: 0; right: 0; z-index: 50;
@@ -185,6 +188,11 @@ function looksLikeUrl(text) {
   return /^(https?:\/\/)?([a-z0-9-]+\.)+[a-z]{2,}(\/\S*)?$/i.test(text);
 }
 
+/** A bare LigaMagic store ID, digits only — how mpuser.getStore(id) itself refers to a store everywhere on the site. */
+function looksLikeStoreId(text) {
+  return /^\d+$/.test(text);
+}
+
 /**
  * Synchronous counterpart to background.js's parseStoreUrl+stripWww: same
  * normalization (scheme optional, "www." ignored), but has to be duplicated
@@ -206,16 +214,50 @@ function setStatus(statusEl, text, { isError = false } = {}) {
   statusEl.style.color = isError ? "#c0392b" : "";
 }
 
+/**
+ * Resolves a store the user typed the bare numeric ID of. Same-origin, no
+ * permission prompt and no tab needed (see handleResolveStoreId in
+ * background.js) — unlike the URL path below, there's no external,
+ * Cloudflare-gated site to visit at all.
+ */
+async function handleAddById(id, input, statusEl) {
+  const known = knownStores.find((s) => s.id === id);
+  if (known) {
+    input.value = "";
+    await addStoreToChecklist(known);
+    return;
+  }
+
+  setStatus(statusEl, "Resolvendo loja…");
+  const resolved = await sendMessage({ action: "resolveStoreId", id });
+  if (!resolved?.id) {
+    setStatus(statusEl, `Erro: ${resolved?.error ?? "desconhecido"}`, { isError: true });
+    return;
+  }
+
+  await addStoreToChecklist(resolved);
+  await loadKnownStores();
+  input.value = "";
+  setStatus(statusEl, "");
+}
+
 async function handleAddClick() {
   const input = document.getElementById("lgm-custom-store-input");
   const statusEl = document.getElementById("lgm-custom-store-status");
-  const url = input.value.trim();
-  if (!url) return;
+  const text = input.value.trim();
+  if (!text) return;
 
   hideKnownStoresDropdown();
 
-  if (!looksLikeUrl(url)) {
-    setStatus(statusEl, "Escolha uma loja da lista ou digite o link dela (ex.: sualoja.com.br).", { isError: true });
+  if (looksLikeStoreId(text)) {
+    await handleAddById(text, input, statusEl);
+    return;
+  }
+
+  if (!looksLikeUrl(text)) {
+    setStatus(statusEl, "Escolha uma loja da lista ou digite o link ou o ID dela (ex.: sualoja.com.br).", {
+      isError: true,
+    });
     return;
   }
 
@@ -225,7 +267,7 @@ async function handleAddClick() {
   // gets. This has to be a plain synchronous lookup, not an awaited one:
   // requestStorePermissions below must stay the first await in this
   // function for the domains that actually do need it (see its comment).
-  const domain = normalizeStoreDomain(url);
+  const domain = normalizeStoreDomain(text);
   const known = domain && knownStores.find((s) => s.domain === domain);
   if (known) {
     input.value = "";
@@ -238,7 +280,7 @@ async function handleAddClick() {
   // and even a couple of milliseconds of unrelated awaits before it is
   // enough to lose that activation (confirmed live, see background.js).
   setStatus(statusEl, "Pedindo permissão…");
-  const permissionResult = await sendMessage({ action: "requestStorePermissions", urls: [url] });
+  const permissionResult = await sendMessage({ action: "requestStorePermissions", urls: [text] });
   if (!permissionResult?.granted) {
     const reason = permissionResult?.error ? ` (${permissionResult.error})` : "";
     setStatus(statusEl, `Permissão negada${reason}`, { isError: true });
@@ -246,7 +288,7 @@ async function handleAddClick() {
   }
 
   setStatus(statusEl, "Resolvendo loja…");
-  const resolved = await sendMessage({ action: "resolveStoreUrl", url });
+  const resolved = await sendMessage({ action: "resolveStoreUrl", url: text });
   if (!resolved?.id) {
     setStatus(statusEl, `Erro: ${resolved?.error ?? "desconhecido"}`, { isError: true });
     return;

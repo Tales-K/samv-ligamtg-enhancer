@@ -69,6 +69,23 @@ function buildDetailedLine({ quantidade, nome, qualidade, edicao, idioma, extras
 }
 
 /**
+ * Builds a "# <nome>" section title, adding the store's id (and its domain,
+ * once resolved) when one is known -- so a copied list still identifies
+ * exactly which store a block came from, not just its display name, which
+ * can repeat across different sellers or change over time.
+ *
+ * `storeCache` is the id-keyed dict background.js's getStoreCache returns
+ * ({ id, name, domain }[] by id) -- domain is filled in only once
+ * background.js has resolved it (see mergeScrapedStoresIntoCache), so it's
+ * routinely still missing and left out rather than shown as empty.
+ */
+function buildStoreSectionTitle(nome, id, storeCache) {
+  if (id == null) return nome;
+  const domain = storeCache?.[String(id)]?.domain;
+  return domain ? `${nome} (ID ${id} · ${domain})` : `${nome} (ID ${id})`;
+}
+
+/**
  * Renders `{ title, lines }` groups as a "# <title>" header followed by its
  * lines, one blank line between groups. Empty groups are dropped.
  *

@@ -20,8 +20,8 @@
  *
  * Depends on: content-utils.js (log, sendMessage, getSettings,
  * showCopiedFeedback, applySamvStyle), detailed-format.js (buildDetailedLine,
- * buildSectionedText, QUALIDADE_SIGLAS, IDIOMA_SIGLAS), lista-defaults.js
- * (isListaCardsPage)
+ * buildSectionedText, buildStoreSectionTitle, QUALIDADE_SIGLAS,
+ * IDIOMA_SIGLAS), lista-defaults.js (isListaCardsPage)
  */
 
 // Official LigaMagic idioma codes, same list as the "Idiomas" checkboxes in
@@ -79,7 +79,7 @@ function detailedCardFromResultado(carta) {
  * another store instead — and copying them would put "0 <card>" in a
  * shopping list that's meant to be bought or pasted back.
  */
-function buildListaText(resultado, options) {
+function buildListaText(resultado, options, storeCache) {
   const formatLine = options.detalhado
     ? (carta) => buildDetailedLine(detailedCardFromResultado(carta))
     : (carta) => formatCardLine(carta, options);
@@ -87,7 +87,7 @@ function buildListaText(resultado, options) {
   const sections = Object.values(resultado)
     .filter(Boolean)
     .map((bloco) => ({
-      title: bloco.nomeLoja,
+      title: buildStoreSectionTitle(bloco.nomeLoja, bloco.loja, storeCache),
       lines: bloco.cartas.filter((carta) => carta && carta.quantidade > 0).map(formatLine),
     }));
 
@@ -163,14 +163,17 @@ async function handleCopyClick(wrap, button, panel) {
   const options = readOptionsFromPanel(panel);
   sendMessage({ action: "saveSettings", settings: { copyListaOptions: options } });
 
-  const resultado = await sendMessage({ action: "getListaResultado" });
+  const [resultado, storeCache] = await Promise.all([
+    sendMessage({ action: "getListaResultado" }),
+    sendMessage({ action: "getStoreCache" }),
+  ]);
   if (!resultado || Object.keys(resultado).length === 0) {
     log("Copiar Lista: nenhum resultado de busca encontrado.");
     panel.style.display = "none";
     return;
   }
 
-  const text = buildListaText(resultado, options);
+  const text = buildListaText(resultado, options, storeCache);
   if (!text) {
     log("Copiar Lista: nenhuma carta com quantidade maior que zero no resultado.");
     panel.style.display = "none";

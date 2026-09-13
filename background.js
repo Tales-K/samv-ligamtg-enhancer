@@ -166,6 +166,14 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
  *       (never requests it) — call requestStorePermissions first.
  *     → resolves with { id, name, domain, fromCache } | { error }
  *
+ *   { action: "resolveStoreId", id: string }
+ *     → looks up a store the user typed the numeric LigaMagic ID of directly
+ *       (see handleResolveStoreId) — cache hit first, otherwise one
+ *       same-origin opc=getStoreData request (no permission prompt, no tab,
+ *       unlike resolveStoreUrl: the ID is already LigaMagic's own, there's no
+ *       external site to visit)
+ *     → resolves with { id, name, domain, fromCache } | { error }
+ *
  *   { action: "installSearchOverride" }
  *     → wraps the page's own CardsOrcamento.pesquisar() once so it picks up
  *       checked custom stores when the user clicks the site's own
@@ -266,6 +274,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
   if (request.action === "resolveStoreUrl") {
     handleResolveStoreUrl(request.url).then(sendResponse);
+    return true;
+  }
+  if (request.action === "resolveStoreId") {
+    handleResolveStoreId(request.id).then(sendResponse);
     return true;
   }
   if (request.action === "installSearchOverride") {
@@ -657,28 +669,74 @@ async function pollForStoreId(tabId, timeoutMs = 60_000, intervalMs = 1000) {
  * `store-url` link to the store's real external site — one fetch gets both,
  * no need to ever visit the store's own (Cloudflare-gated) domain just to
  * learn what it is. `domain` is null if the store has none on file.
+ *
+ * Returns null for an ID with no matching store — the endpoint answers that
+ * with 200 and an "Loja não identificada" HTML fragment rather than an HTTP
+ * error, so the absence of a `store-name` block is the only signal.
+ */
+async function fetchStoreDetailsIfExists(storeId) {
+  const res = await fetch(
+    `https://www.ligamagic.com.br/ajax/mp/actions.php?opc=getStoreData&id=${storeId}&origin=desktop&tcg=1`,
+    { credentials: "include", headers: { "x-requested-with": "XMLHttpRequest" } },
+  );
+  const data = await res.json();
+  const nameMatch = data.html?.match(/store-name b'>\s*([^<\n]+)/);
+  if (!nameMatch) return null;
+
+  const urlMatch = data.html?.match(/store-url'>\s*<a href='([^']+)'/);
+  let domain = null;
+  if (urlMatch) {
+    try {
+      domain = stripWww(new URL(urlMatch[1]).hostname);
+    } catch {
+      // malformed store-url value — leave domain null
+    }
+  }
+  return { name: nameMatch[1].trim(), domain };
+}
+
+/**
+ * Wraps fetchStoreDetailsIfExists for callers that already know the ID
+ * belongs to a real store (found via screenfilter scraping or a successful
+ * URL resolve) and just want its domain filled in — a generic placeholder
+ * name on any hiccup (network error, unexpected markup) beats losing a whole
+ * batch resolution pass over one entry.
  */
 async function fetchStoreDetails(storeId) {
   try {
-    const res = await fetch(
-      `https://www.ligamagic.com.br/ajax/mp/actions.php?opc=getStoreData&id=${storeId}&origin=desktop&tcg=1`,
-      { credentials: "include", headers: { "x-requested-with": "XMLHttpRequest" } },
-    );
-    const data = await res.json();
-    const nameMatch = data.html?.match(/store-name b'>\s*([^<\n]+)/);
-    const urlMatch = data.html?.match(/store-url'>\s*<a href='([^']+)'/);
-    let domain = null;
-    if (urlMatch) {
-      try {
-        domain = stripWww(new URL(urlMatch[1]).hostname);
-      } catch {
-        // malformed store-url value — leave domain null
-      }
-    }
-    return { name: nameMatch ? nameMatch[1].trim() : `Loja ${storeId}`, domain };
+    return (await fetchStoreDetailsIfExists(storeId)) ?? { name: `Loja ${storeId}`, domain: null };
   } catch {
     return { name: `Loja ${storeId}`, domain: null };
   }
+}
+
+/**
+ * Looks up a store by the numeric LigaMagic ID the user typed directly into
+ * the custom-store search field, instead of a name (picked from the known-
+ * stores dropdown) or a URL (resolved via resolveStoreUrl). Cache hit first;
+ * otherwise a single getStoreData request — same-origin and already covered
+ * by this extension's own host_permissions, so unlike resolveStoreUrl this
+ * never needs a permission prompt or a visible tab.
+ */
+async function handleResolveStoreId(rawId) {
+  const id = String(rawId ?? "").trim();
+  if (!/^\d+$/.test(id)) return { error: "ID inválido." };
+
+  const cache = await loadStoreIdCache();
+  if (cache[id]) return { ...cache[id], fromCache: true };
+
+  let details;
+  try {
+    details = await fetchStoreDetailsIfExists(id);
+  } catch (err) {
+    return { error: `Falha ao consultar a loja: ${err.message}` };
+  }
+  if (!details) return { error: "Loja não encontrada para esse ID." };
+
+  const entry = { id, name: details.name, domain: details.domain, addedAt: Date.now() };
+  cache[id] = entry;
+  await saveStoreIdCache(cache);
+  return { ...entry, fromCache: false };
 }
 
 /**
