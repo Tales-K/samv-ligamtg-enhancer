@@ -325,40 +325,44 @@ function analisarFechamentosCandidato(consolidado, card) {
 
 /**
  * Turns a list of realocacoes (as produced by analisarFechamentosCandidato
- * or analisarReorganizacaoLoja) into the two DOM operations that actually
- * carry them out: `zerar` -- rows to drop to 0 units, exactly like clicking
- * the page's own delete icon -- and `incrementar` -- rows to add `qtd` units
- * on top of whatever they already have (already net of that store's own
- * existing real quantity, see preencherCarta, so this is always the correct
- * amount to add, never to overwrite).
+ * or analisarReorganizacaoLoja) into the DOM writes that move each card to
+ * its destination(s): rows to add `qtd` units to, on top of whatever they
+ * already have (already net of that store's own existing real quantity, see
+ * preencherCarta, so this is always the correct amount to add, never to
+ * overwrite). The source rows themselves need no explicit action here --
+ * every realocacao's source is always a card at the store the plano is
+ * closing, and closing a store (see fecharLojas on the plano this feeds
+ * into) already drops every one of its cards in a single step.
  */
 function planoDeRealocacoes(realocacoes) {
-  const zerar = [];
   const incrementar = [];
   for (const realoc of realocacoes) {
-    zerar.push({ bloco: realoc.bloco, linha: realoc.linha });
     for (const [, info] of realoc.destino) {
       incrementar.push({ bloco: info.bloco, linha: info.linha, qtd: info.qtd });
     }
   }
-  return { zerar, incrementar };
+  return incrementar;
 }
 
 /**
  * Structured, DOM-executable version of what construirInstrucoes() already
  * describes in prose for one candidate's suggestion -- consumed by
  * aplicarPlanoNaTela() to actually carry it out on the live results screen.
+ * `fecharLojas` (bloco indices) are closed via the store's own "remover
+ * todos os itens desta loja" control, never by removing cards one at a
+ * time: LigaMagic keeps charging (and counting toward the total) a store's
+ * shipping for as long as its own block is still part of the result, even
+ * once every card bought there has been individually removed -- only that
+ * control actually drops the block, and with it the shipping.
  */
 function construirPlanoAplicacao(analise) {
-  const zerar = [];
   const incrementar = [];
+  const fecharLojas = [];
   for (const loja of analise.lojasFechando) {
-    zerar.push({ bloco: loja.bloco, linha: loja.linha });
-    const plano = planoDeRealocacoes(loja.realocacoes);
-    zerar.push(...plano.zerar);
-    incrementar.push(...plano.incrementar);
+    fecharLojas.push(loja.bloco);
+    incrementar.push(...planoDeRealocacoes(loja.realocacoes));
   }
-  return { zerar, incrementar };
+  return { incrementar, fecharLojas };
 }
 
 // ── Reorganização (close a store without dropping any card) ────────────────────
@@ -389,6 +393,9 @@ function analisarReorganizacaoLoja(consolidado, loja) {
   const cartasLoja = consolidado.cartasPorLoja.get(loja.nome) ?? new Map();
   if (cartasLoja.size === 0) return null; // nothing really bought here today
 
+  // Every entry in cartasLoja is a real purchase at this same store, so they
+  // all share this store's own bloco index -- any one of them locates it.
+  const bloco = [...cartasLoja.values()][0].bloco;
   const lojasAbertas = new Set(consolidado.lojas.map((l) => l.nome).filter((nome) => nome !== loja.nome));
 
   let somaDeltas = 0;
@@ -413,12 +420,12 @@ function analisarReorganizacaoLoja(consolidado, loja) {
   const economia = loja.frete - somaDeltas;
   if (economia <= ANALISE_ECONOMIA_MINIMA) return null;
 
-  return { nome: loja.nome, frete: loja.frete, realocacoes, somaDeltas, economia };
+  return { nome: loja.nome, frete: loja.frete, bloco, realocacoes, somaDeltas, economia };
 }
 
-/** Structured, DOM-executable version of a reorganização's realocacoes -- see planoDeRealocacoes. */
+/** Structured, DOM-executable version of a reorganização's realocacoes -- see construirPlanoAplicacao. */
 function construirPlanoAplicacaoReorganizacao(reorg) {
-  return planoDeRealocacoes(reorg.realocacoes);
+  return { incrementar: planoDeRealocacoes(reorg.realocacoes), fecharLojas: [reorg.bloco] };
 }
 
 /** Every store worth reorganizing away, most savings first. */
@@ -658,9 +665,11 @@ async function analisarEconomiaAsync(resultado, freteCaroLimiar = FRETE_CARO_LIM
 
 // Bumped whenever the report's shape or the meaning of `economia` changes,
 // so a previously-cached analysis (computed under different semantics) is
-// never mistaken for a fresh one and shown as-is. Bumped to 7 for the new
-// `plano` field on each `reorganizacoes` entry (Aplicar Economia).
-const ANALISE_CACHE_VERSION = 7;
+// never mistaken for a fresh one and shown as-is. Bumped to 8 for the
+// `plano` shape change ({ incrementar, fecharLojas } replacing { zerar,
+// incrementar } -- closing a store now actually drops its block/shipping
+// instead of just removing its cards one at a time).
+const ANALISE_CACHE_VERSION = 8;
 
 /** Cheap fingerprint of a search result, to know whether a cached analysis is still current. */
 function hashResultado(resultado) {
@@ -1283,26 +1292,25 @@ if (typeof document !== "undefined") {
   }
 
   /**
-   * Actually carries out a { zerar, incrementar } plano (see
-   * construirPlanoAplicacao) on the live results screen. Every row involved
-   * already exists in the DOM -- LigaMagic renders a hidden, fully
-   * interactive row for every card/store pairing it knows about, even ones
-   * currently at 0 units (the "outras cartas disponíveis" list) -- so this
-   * never creates anything, only drives the same controls a user would:
-   * `.delete.item-delete`'s own onclick to zero a row, and the same
-   * `.qty` input + blur the page's own onblur handler listens for to change
-   * one. Zerar first, then incrementar: the two lists never target the same
-   * row (a `zerar` row is always at a store this plano is closing, an
-   * `incrementar` row always at a store staying open), so the order doesn't
-   * matter for correctness, but freeing capacity before adding to it reads
-   * more naturally.
+   * Actually carries out a { incrementar, fecharLojas } plano (see
+   * construirPlanoAplicacao) on the live results screen. Every row a card is
+   * moved into already exists in the DOM -- LigaMagic renders a hidden,
+   * fully interactive row for every card/store pairing it knows about, even
+   * ones currently at 0 units (the "outras cartas disponíveis" list) -- so
+   * this never creates anything, only drives the same controls a user
+   * would: the same `.qty` input + blur the page's own onblur handler
+   * listens for, to move a card, then each closing store's own "remover
+   * todos os itens desta loja" icon (`CardsOrcamento.item.removeTodosItens`)
+   * to actually drop it and its shipping.
+   *
+   * Moves first, closures after: closing a store removes its block outright
+   * (unlike moving a card away from it one at a time), so there's nothing
+   * left there afterward to read a "current quantity" from -- not that this
+   * plano would ever ask to increment INTO a store it's also closing, but
+   * ordering it this way keeps that impossible by construction rather than
+   * by coincidence.
    */
   function aplicarPlanoNaTela(plano) {
-    for (const { bloco, linha } of plano.zerar) {
-      const del = document.querySelector(`#item_${bloco}_${linha} .delete.item-delete`);
-      if (del) del.click();
-      else logNotShown("Aplicar Economia (remover carta)", `linha #item_${bloco}_${linha} não encontrada`);
-    }
     for (const { bloco, linha, qtd } of plano.incrementar) {
       const input = document.querySelector(`input.qty[data-bloco="${bloco}"][data-linha="${linha}"]`);
       if (!input) {
@@ -1313,13 +1321,18 @@ if (typeof document !== "undefined") {
       input.value = String(atual + qtd);
       input.dispatchEvent(new FocusEvent("blur"));
     }
+    for (const bloco of plano.fecharLojas) {
+      const del = document.querySelector(`#bloco_${bloco} img.del[onclick*="removeTodosItens"]`);
+      if (del) del.click();
+      else logNotShown("Aplicar Economia (fechar loja)", `botão de remover loja #bloco_${bloco} não encontrado`);
+    }
   }
 
   /**
    * Applies one suggestion's plano -- from either "Economia por
    * reorganização" or "Economia de frete por remoção", both produce the same
-   * { zerar, incrementar } shape -- then recomputes the whole analysis from
-   * scratch: applying one suggestion can change what's left to suggest (a
+   * { incrementar, fecharLojas } shape -- then recomputes the whole analysis
+   * from scratch: applying one suggestion can change what's left to suggest (a
    * card that just moved into a store may now make that store newly
    * closeable, or no longer closeable elsewhere) -- and reopens the modal
    * with the fresh result, same as clicking "Recalcular" would.
