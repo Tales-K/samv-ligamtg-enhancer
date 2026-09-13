@@ -741,22 +741,38 @@ function formatarRelatorioTexto(relatorio) {
 if (typeof document !== "undefined") {
   const analiseLog = (...args) => log("[Análise de Economia]", ...args);
 
+  // Same 10px gap the site's own "Adicionar ao Carrinho" / "Finalizar
+  // Compra" pair uses between each other, and the same full width as those
+  // two -- so this reads as one consistent stack of 4 buttons, not two
+  // native ones followed by two narrower, oddly-spaced extras.
+  const ANALISE_BOTAO_GAP = "10px";
+
   function buildAnaliseButton() {
     const button = document.createElement("div");
     button.id = "lgm-analise-economia-btn";
     button.className = "botao";
-    button.style.cssText = "cursor: pointer; display: block; width: fit-content; margin: 8px auto 0 auto;";
+    button.style.cssText =
+      `cursor: pointer; display: block; width: 100%; box-sizing: border-box; ` +
+      `text-align: center; margin-top: ${ANALISE_BOTAO_GAP};`;
     button.textContent = "Análise de Economia";
     applySamvStyle(button);
     return button;
   }
 
-  /** Caption shown under the button once an analysis (auto or manual) has run. */
+  /**
+   * Caption shown above the button once an analysis (auto or manual) has
+   * run and found reorganização savings. Sits between "Finalizar Compra"
+   * and the button itself -- its own margin-top carries the 10px gap from
+   * "Finalizar Compra" while it has something to say, collapsing to 0 when
+   * empty so the button (which keeps its own fixed 10px top margin
+   * regardless) still lands the same 10px below "Finalizar Compra" either
+   * way.
+   */
   function buildIndicadorEconomia() {
     const indicador = document.createElement("div");
     indicador.id = "lgm-analise-economia-indicador";
     indicador.style.cssText =
-      "text-align: center; font-size: 11px; margin: 4px auto 0 auto; width: fit-content; font-weight: 600;";
+      "text-align: center; font-size: 11px; margin: 0 auto; width: fit-content; font-weight: 600;";
     return indicador;
   }
 
@@ -775,19 +791,15 @@ if (typeof document !== "undefined") {
     return (relatorio.reorganizacoes ?? []).reduce((soma, reorg) => soma + reorg.economia, 0);
   }
 
+  /** Shows or clears the caption -- see buildIndicadorEconomia for its own margin handling. */
   function renderIndicadorEconomia(indicador, relatorio) {
     if (!indicador) return;
-    if (relatorio?.baseline == null) {
-      indicador.textContent = "";
-      return;
-    }
-    const total = calcularEconomiaTotalDisponivel(relatorio);
-    if (total > ANALISE_ECONOMIA_MINIMA) {
-      indicador.textContent = `💰 Até R$ ${formatarMoeda(total)} de economia disponível`;
-      indicador.style.color = "#1a7f37";
-    } else {
-      indicador.textContent = "";
-    }
+    const total = relatorio?.baseline != null ? calcularEconomiaTotalDisponivel(relatorio) : 0;
+    const temEconomia = total > ANALISE_ECONOMIA_MINIMA;
+
+    indicador.textContent = temEconomia ? `💰 Até R$ ${formatarMoeda(total)} de economia disponível` : "";
+    indicador.style.color = "#1a7f37";
+    indicador.style.marginTop = temEconomia ? ANALISE_BOTAO_GAP : "0";
   }
 
   /**
@@ -842,10 +854,13 @@ if (typeof document !== "undefined") {
     const finalizarBtn = document.getElementById("btn-finalizar");
     if (!finalizarBtn) return false;
 
-    const button = buildAnaliseButton();
-    finalizarBtn.parentElement.appendChild(button);
     const indicador = buildIndicadorEconomia();
-    finalizarBtn.parentElement.appendChild(indicador);
+    const button = buildAnaliseButton();
+    // .after(), not appendChild -- lands right after "Finalizar Compra"
+    // (above "Copiar Lista de Compras", which injects itself via
+    // appendChild and so always ends up last) regardless of which of the
+    // two content scripts happens to run first.
+    finalizarBtn.after(indicador, button);
     button.addEventListener("click", () => handleAnaliseClick(button, false, indicador));
     initIndicadorEconomiaObserver(indicador);
 

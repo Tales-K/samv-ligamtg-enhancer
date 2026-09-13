@@ -119,13 +119,13 @@ const checkboxRow = ({ key, label, title }, checked) => `
 function buildWrap(initialOptions) {
   const wrap = document.createElement("span");
   wrap.id = "lgm-copy-lista-wrap";
-  // width: fit-content keeps the wrap hugging the button, so `margin: auto`
-  // centres it under "Finalizar Compra" and the panel below still anchors to
-  // the button's own left edge instead of the full column width.
-  wrap.style.cssText =
-    "position: relative; display: block; width: fit-content; margin: 12px auto 0 auto;";
+  // Full width, same 10px top gap as the rest of this button stack (see
+  // ANALISE_BOTAO_GAP in analise-economia.js) -- the dropdown panel below
+  // still anchors to the button's own left edge (left: 0 on the panel),
+  // now just a wider one.
+  wrap.style.cssText = "position: relative; display: block; width: 100%; box-sizing: border-box; margin-top: 10px;";
   wrap.innerHTML = `
-    <div class="botao" id="lgm-copy-lista-btn" style="cursor: pointer; display: inline-block;">Copiar Lista de Compras</div>
+    <div class="botao" id="lgm-copy-lista-btn" style="cursor: pointer; display: block; width: 100%; box-sizing: border-box; text-align: center;">Copiar Lista de Compras</div>
     <div id="lgm-copy-lista-panel" style="display: none; position: absolute; bottom: 100%; left: 0; margin-bottom: 6px;
       background: #fff; border: 1px solid #999; border-radius: 2px; padding: 10px; width: 190px; z-index: 50;
       box-shadow: 0 2px 8px rgba(0,0,0,0.2); font-size: 12px;">
