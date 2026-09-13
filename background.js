@@ -187,6 +187,15 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
  *       there's nothing to scrape or track separately
  *     → resolves with Record<blocoIndex, StoreBlock> | null
  *
+ *   { action: "scrapeStoresFromLista", stores: { id: string, name: string }[] }
+ *     → merges stores harvested from a "Compra por Lista" result (see
+ *       lista-store-scraper.js) into the same known-store cache
+ *       handleScrapeStoresFromPage feeds elsewhere (see
+ *       mergeScrapedStoresIntoCache) — this page never carries the
+ *       screenfilter.stores global that scraper reads, so it needs its own
+ *       harvest off window.CardsOrcamento.item.resultado instead
+ *     → resolves with { ok: boolean }
+ *
  *   { action: "fetchCardTags", set: string, number: string }
  *     → fetches a card's Scryfall Tagger tags (see handleFetchCardTags),
  *       keeping only "card" namespace tags (oracle tags and the ones they
@@ -269,6 +278,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
   if (request.action === "getListaResultado") {
     handleGetListaResultado(sender.tab?.id).then(sendResponse);
+    return true;
+  }
+  if (request.action === "scrapeStoresFromLista") {
+    handleScrapeStoresFromLista(request.stores).then(sendResponse);
     return true;
   }
   if (request.action === "fetchCardTags") {
@@ -897,6 +910,19 @@ async function handleScrapeStoresFromPage(tabId) {
   } catch {
     return; // not a scriptable ligamagic.com.br page right now — nothing to do
   }
+  await mergeScrapedStoresIntoCache(scrapedStores);
+}
+
+/**
+ * Merges freshly-harvested { id, name } pairs into the persistent store
+ * cache -- adding new entries, refreshing a name that changed -- then runs
+ * the same capped, throttled domain-resolution follow-up regardless of
+ * which scraper found them (handleScrapeStoresFromPage's screenfilter.stores
+ * harvest, or handleScrapeStoresFromLista's own harvest off "Compra por
+ * Lista" results): both hand over nothing but id+name, since domain never
+ * comes for free from either source.
+ */
+async function mergeScrapedStoresIntoCache(scrapedStores) {
   if (!scrapedStores || scrapedStores.length === 0) return;
 
   const cache = await loadStoreIdCache();
@@ -936,6 +962,19 @@ async function handleScrapeStoresFromPage(tabId) {
   } finally {
     domainResolutionInProgress = false;
   }
+}
+
+/**
+ * Harvests every store's { id, name } straight from the "Compra por Lista"
+ * results a content script already read off window.CardsOrcamento.item.
+ * resultado (see lista-store-scraper.js) -- that page never carries the
+ * screenfilter.stores global handleScrapeStoresFromPage reads elsewhere, so
+ * without this those results never enrich the known-store cache at all.
+ */
+async function handleScrapeStoresFromLista(stores) {
+  if (!Array.isArray(stores)) return { ok: false };
+  await mergeScrapedStoresIntoCache(stores);
+  return { ok: true };
 }
 
 // ── Scryfall Tagger ──────────────────────────────────────────────────────────
