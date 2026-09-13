@@ -84,11 +84,13 @@ página individual da carta
   sozinho já está acima do valor configurado no painel)
 - Legenda embaixo do botão "Análise de Economia" — assim que o frete de
   todas as lojas termina de calcular, mostra automaticamente quanto dá pra
-  economizar no total, sem precisar abrir a modal primeiro
-- Botão "Aplicar Economia" em cada item da seção "Economia de frete por
-  remoção" — ajusta as quantidades de cada carta nas lojas certas pra
-  realizar aquela sugestão específica na tela de resultados, e recalcula a
-  análise em seguida (uma sugestão aplicada pode mudar as outras disponíveis)
+  economizar por reorganização (nenhuma carta é removida), sem precisar
+  abrir a modal primeiro
+- Botão "Aplicar Economia" em cada item das seções "Economia por
+  reorganização" e "Economia de frete por remoção" — ajusta as quantidades
+  de cada carta nas lojas certas pra realizar aquela sugestão específica na
+  tela de resultados, e recalcula a análise em seguida (uma sugestão
+  aplicada pode mudar as outras disponíveis)
 - Alerta de frete caro — destaca em vermelho o frete de uma loja acima do
   valor configurado no painel (padrão R$ 35) e mostra um aviso temporário
   sugerindo bloquear a loja e pesquisar de novo

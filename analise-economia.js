@@ -404,6 +404,8 @@ function analisarReorganizacaoLoja(consolidado, loja) {
       precoAntes: info.valor,
       precoDepois: preenchido.custo,
       delta,
+      bloco: info.bloco,
+      linha: info.linha,
       destino: [...preenchido.porLoja], // can span more than one destination store, see preencherCarta
     });
   }
@@ -412,6 +414,11 @@ function analisarReorganizacaoLoja(consolidado, loja) {
   if (economia <= ANALISE_ECONOMIA_MINIMA) return null;
 
   return { nome: loja.nome, frete: loja.frete, realocacoes, somaDeltas, economia };
+}
+
+/** Structured, DOM-executable version of a reorganização's realocacoes -- see planoDeRealocacoes. */
+function construirPlanoAplicacaoReorganizacao(reorg) {
+  return planoDeRealocacoes(reorg.realocacoes);
 }
 
 /** Every store worth reorganizing away, most savings first. */
@@ -629,6 +636,7 @@ async function analisarEconomiaAsync(resultado, freteCaroLimiar = FRETE_CARO_LIM
     frete: reorg.frete,
     economia: reorg.economia,
     instrucoes: construirInstrucoesReorganizacao(reorg, totalAtual),
+    plano: construirPlanoAplicacaoReorganizacao(reorg),
   }));
 
   const alertasFreteCaro = selecionarLojasFreteCaro(consolidado, freteCaroLimiar).map((l) => ({
@@ -650,9 +658,9 @@ async function analisarEconomiaAsync(resultado, freteCaroLimiar = FRETE_CARO_LIM
 
 // Bumped whenever the report's shape or the meaning of `economia` changes,
 // so a previously-cached analysis (computed under different semantics) is
-// never mistaken for a fresh one and shown as-is. Bumped to 6 for the new
-// `plano` field on each `resultados` entry (Aplicar Economia).
-const ANALISE_CACHE_VERSION = 6;
+// never mistaken for a fresh one and shown as-is. Bumped to 7 for the new
+// `plano` field on each `reorganizacoes` entry (Aplicar Economia).
+const ANALISE_CACHE_VERSION = 7;
 
 /** Cheap fingerprint of a search result, to know whether a cached analysis is still current. */
 function hashResultado(resultado) {
@@ -744,30 +752,18 @@ if (typeof document !== "undefined") {
   }
 
   /**
-   * Sums up the independent savings opportunities in `relatorio` into one
-   * "up to R$X" figure -- deliberately an approximation, not a guarantee
-   * every listed suggestion can be applied together: a store can appear as
-   * the subject of both a reorganização entry and a remoção entry (two
-   * different ways of closing the same store), and applying one makes the
-   * other moot, so counting both in full would double-count that store's
-   * shipping. Dedupes by store name to avoid that specific case; two
-   * suggestions that touch entirely different stores are genuinely
-   * independent and both count in full.
+   * Sums up "Economia por reorganização" opportunities into one "up to R$X"
+   * figure -- deliberately just this section, not "Economia de frete por
+   * remoção" too: reorganização never drops a card from the purchase, so
+   * every suggestion in it is a strict improvement with nothing given up,
+   * safe to headline on the button itself. Remoção trades away an actual
+   * card, which isn't something to imply is "available savings" before the
+   * user has even opened the modal to see what's being given up for it.
+   * Each entry is a different store, so there's no double-counting to guard
+   * against here the way there would be mixing the two sections together.
    */
   function calcularEconomiaTotalDisponivel(relatorio) {
-    const lojasContadas = new Set();
-    let total = 0;
-    for (const reorg of relatorio.reorganizacoes ?? []) {
-      if (lojasContadas.has(reorg.nome)) continue;
-      lojasContadas.add(reorg.nome);
-      total += reorg.economia;
-    }
-    for (const item of relatorio.resultados ?? []) {
-      if ((item.lojasQueSaem ?? []).every((nome) => lojasContadas.has(nome))) continue;
-      item.lojasQueSaem?.forEach((nome) => lojasContadas.add(nome));
-      total += item.economia;
-    }
-    return total;
+    return (relatorio.reorganizacoes ?? []).reduce((soma, reorg) => soma + reorg.economia, 0);
   }
 
   function renderIndicadorEconomia(indicador, relatorio) {
@@ -994,7 +990,7 @@ if (typeof document !== "undefined") {
         try {
           await onAplicar();
           // On success the whole modal gets replaced by a freshly recomputed
-          // one (see aplicarEconomiaRemocao) -- this row won't survive that,
+          // one (see aplicarPlanoEconomia) -- this row won't survive that,
           // so there's nothing left to reset here.
         } catch (err) {
           analiseLog("Falha ao aplicar economia —", err.message);
@@ -1085,7 +1081,10 @@ if (typeof document !== "undefined") {
       const tooltip =
         "Nenhuma carta é removida da compra -- ela só passa a ser comprada em outra loja já presente " +
         "neste resultado, liberando o frete desta.";
-      relatorio.reorganizacoes.forEach((item) => body.appendChild(buildRow(item, tooltip)));
+      relatorio.reorganizacoes.forEach((item) => {
+        const onAplicar = item.plano ? () => aplicarPlanoEconomia(item.plano) : undefined;
+        body.appendChild(buildRow(item, tooltip, onAplicar));
+      });
     }
 
     body.appendChild(buildSectionTitle("Economia de frete por remoção"));
@@ -1101,7 +1100,7 @@ if (typeof document !== "undefined") {
         "Economia por redistribuição: não inclui o preço da própria carta, só o que sobra de fechar " +
         "loja(s) e/ou realocar as outras cartas para ofertas mais baratas.";
       relatorio.resultados.forEach((item) => {
-        const onAplicar = item.plano ? () => aplicarEconomiaRemocao(item.plano) : undefined;
+        const onAplicar = item.plano ? () => aplicarPlanoEconomia(item.plano) : undefined;
         body.appendChild(buildRow(item, tooltip, onAplicar));
       });
     }
@@ -1317,14 +1316,15 @@ if (typeof document !== "undefined") {
   }
 
   /**
-   * Applies one "Economia de frete por remoção" suggestion, then recomputes
-   * the whole analysis from scratch -- applying one suggestion can change
-   * what's left to suggest (a card that just moved into a store may now
-   * make that store newly closeable, or no longer closeable elsewhere) --
-   * and reopens the modal with the fresh result, same as clicking
-   * "Recalcular" would.
+   * Applies one suggestion's plano -- from either "Economia por
+   * reorganização" or "Economia de frete por remoção", both produce the same
+   * { zerar, incrementar } shape -- then recomputes the whole analysis from
+   * scratch: applying one suggestion can change what's left to suggest (a
+   * card that just moved into a store may now make that store newly
+   * closeable, or no longer closeable elsewhere) -- and reopens the modal
+   * with the fresh result, same as clicking "Recalcular" would.
    */
-  async function aplicarEconomiaRemocao(plano) {
+  async function aplicarPlanoEconomia(plano) {
     aplicarPlanoNaTela(plano);
     // Gives the page's own onblur/onclick handlers (synchronous, but still
     // worth a tick) room to finish updating window.CardsOrcamento.item's
