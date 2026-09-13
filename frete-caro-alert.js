@@ -14,9 +14,12 @@
  * The floating message itself only shows (a) the first time a flagged
  * badge actually scrolls into view -- a results page can list many stores,
  * so a badge that resolves off-screen showing its 5s message immediately
- * would burn that window before the user ever scrolls down to it -- and
- * (b) again on hover, any number of times, so the reminder is never more
- * than a mouseover away once the user has already scrolled past it.
+ * would burn that window before the user ever scrolls down to it -- staying
+ * up for a fixed 5s regardless of the mouse, and (b) again on hover, any
+ * number of times, so the reminder is never more than a mouseover away once
+ * the user has already scrolled past it -- but a hover-triggered showing has
+ * no timer of its own: it stays up only as long as the mouse actually stays
+ * over the badge, disappearing the instant it leaves.
  *
  * Depends on: content-utils.js (log, parsePrice, getSettings,
  * SAMV_FRETE_CARO_BG, SAMV_FRETE_CARO_TEXT, FRETE_CARO_LIMIAR_PADRAO),
@@ -37,16 +40,22 @@ function aplicarEstiloFreteCaro(el) {
 }
 
 /**
- * Shows (or, if already showing, re-anchors and restarts the 5s timer on)
- * the floating message next to `el`. Idempotent per element -- one toast
- * node reused across repeat calls (first real visibility, then any number
- * of hovers) instead of stacking a new one on top of the last, tracked via
- * a plain property on the element itself (fine here: this file is the only
- * thing that ever creates or reads it, all within the same isolated
- * content-script world).
+ * Shows (or, if already showing, re-anchors) the floating message next to
+ * `el`. Idempotent per element -- one toast node reused across repeat calls
+ * (first real visibility, then any number of hovers) instead of stacking a
+ * new one on top of the last, tracked via a plain property on the element
+ * itself (fine here: this file is the only thing that ever creates or reads
+ * it, all within the same isolated content-script world).
+ *
+ * `autoOcultarMs`, when given, hides it on its own after that long,
+ * regardless of the mouse -- used only for the first-visibility case, which
+ * has no hover to hang visibility off of. Omitted for a hover-triggered
+ * call: esconderAvisoFreteCaro() on "mouseleave" is what hides that one, so
+ * it never lingers after the mouse has actually left.
  */
-function mostrarAvisoFreteCaro(el) {
+function mostrarAvisoFreteCaro(el, { autoOcultarMs } = {}) {
   clearTimeout(el._freteCaroToastTimer);
+  el._freteCaroToastTimer = null;
 
   let aviso = el._freteCaroToastEl;
   if (!aviso) {
@@ -77,10 +86,17 @@ function mostrarAvisoFreteCaro(el) {
   aviso.style.left = `${Math.max(4, rect.left + window.scrollX)}px`;
   aviso.style.top = `${Math.max(4, rect.top + window.scrollY - aviso.offsetHeight - 6)}px`;
 
-  el._freteCaroToastTimer = setTimeout(() => {
-    aviso.remove();
-    el._freteCaroToastEl = null;
-  }, FRETE_CARO_TOAST_MS);
+  if (autoOcultarMs != null) {
+    el._freteCaroToastTimer = setTimeout(() => esconderAvisoFreteCaro(el), autoOcultarMs);
+  }
+}
+
+/** Hides `el`'s toast immediately, if it's showing. See mostrarAvisoFreteCaro. */
+function esconderAvisoFreteCaro(el) {
+  clearTimeout(el._freteCaroToastTimer);
+  el._freteCaroToastTimer = null;
+  el._freteCaroToastEl?.remove();
+  el._freteCaroToastEl = null;
 }
 
 /**
@@ -97,7 +113,7 @@ function avisarNaPrimeiraVisualizacao(el) {
     (entries) => {
       entries.forEach((entry) => {
         if (!entry.isIntersecting) return;
-        mostrarAvisoFreteCaro(el);
+        mostrarAvisoFreteCaro(el, { autoOcultarMs: FRETE_CARO_TOAST_MS });
         observer.unobserve(el);
       });
     },
@@ -117,6 +133,7 @@ function processarFrete(el, limiar) {
     aplicarEstiloFreteCaro(el);
     avisarNaPrimeiraVisualizacao(el);
     el.addEventListener("mouseenter", () => mostrarAvisoFreteCaro(el));
+    el.addEventListener("mouseleave", () => esconderAvisoFreteCaro(el));
     log(`Frete caro detectado em ${el.id}: R$ ${valor.toFixed(2)} (limiar R$ ${limiar}).`);
   }
 }
