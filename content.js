@@ -16,9 +16,8 @@
 
 // ── Message listener (popup → content script) ─────────────────────────────────
 chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
-  if (request.action === "scrapeCards") {
-    sendResponse({ cards: isDeckPage() ? scrapeCardsDeck() : [] });
-  }
+  if (request.action !== "scrapeCards") return false; // let any other listener/sender own this message -- returning true unconditionally here kept the channel open for messages this file never responds to, surfacing as "message channel closed before a response was received" on the sender's end
+  sendResponse({ cards: isDeckPage() ? scrapeCardsDeck() : [] });
   return true;
 });
 

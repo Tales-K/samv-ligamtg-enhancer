@@ -204,6 +204,50 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
  *       harvest off window.CardsOrcamento.item.resultado instead
  *     → resolves with { ok: boolean }
  *
+ *   { action: "getListaFiltros" }
+ *     → reads the page's own current idioma/extras/qualidade/estoque/
+ *       pré-venda selections off wizard.json.caracteristicas, and whether
+ *       the user's own list pinned exact per-card editions (see
+ *       handleGetListaFiltros) — used by Super Pesquisa to auto-replicate
+ *       the user's exact filters (and whether to pin exact versions) in the
+ *       second tab it opens, with no question asked
+ *     → resolves with { caracteristicas, usouVersoesExatas }
+ *
+ *   { action: "startSuperPesquisa", payload: { targetLines: string[], filtros, baseline, baselineComReorg } }
+ *     → fire-and-forget, same reasoning as loadPendingPrices below: opens a
+ *       second, focused Compra por Lista tab and drives it through TWO
+ *       searches — a wide discovery search (the user's real cards at their
+ *       real quantities, the 5 basic land types, and public-deck padding up
+ *       to SUPER_PESQUISA_MAX_CARDS lines, unrestricted by store) purely to
+ *       see which stores could plausibly be involved, then a second, clean
+ *       search of just the user's real cards at their real quantities,
+ *       scoped to exactly the stores the first one surfaced (see
+ *       handleStartSuperPesquisa) — then asks that same second tab to apply
+ *       every viable "economia por reorganização" for real on that clean
+ *       result and report back — can take a genuine while, no response
+ *       channel is kept open for it
+ *     → result travels back to the calling tab as its own
+ *       { action: "superPesquisaResult", ok, baseline?, baselineComReorg?,
+ *       totalSemReorgDepois?, totalComReorgDepois?, error? } message once
+ *       the whole thing finishes (including the second tab's own
+ *       reorganização pass)
+ *
+ *   { action: "superPesquisaFinalizeOnThisTab", baseline, baselineComReorg }
+ *     → background → the second tab's own content script (never sent
+ *       anywhere else): asks it to read its own just-finished (already
+ *       real-quantity, store-scoped) search result, apply every viable
+ *       reorganização for real, show its own completion modal with all four
+ *       totals, and report back
+ *     → fire-and-forget, no response expected here either — see
+ *       "superPesquisaFinalized" below for how it reports back
+ *
+ *   { action: "superPesquisaFinalized", baseline, baselineComReorg, totalSemReorgDepois, totalComReorgDepois }
+ *     → the second tab's own content script → background, once it's done
+ *       applying reorganizações for real and showing its own modal; relayed
+ *       to the origin tab as "superPesquisaResult" above (looked up via
+ *       superPesquisaOriginByTabId, keyed by the second tab's own id)
+ *     → fire-and-forget
+ *
  *   { action: "fetchCardTags", set: string, number: string }
  *     → fetches a card's Scryfall Tagger tags (see handleFetchCardTags),
  *       keeping only "card" namespace tags (oracle tags and the ones they
@@ -231,6 +275,22 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
  *       own deck form rejected as unrecognized (see
  *       scrapeBatchViaManagedDeck) — empty when everything resolved normally.
  */
+// A long-lived port the content script opens for the duration of a Super
+// Pesquisa run (see super-pesquisa.js). Its only purpose is staying
+// connected: MV3 tears down an idle service worker (and everything running
+// inside it, including any in-flight async chain) after a short window with
+// no activity it tracks as "in use", and a run of several
+// chrome.tabs.update/executeScript calls interleaved with plain
+// setTimeout-based waits doesn't reliably count -- a connected
+// runtime.connect() port does. Confirmed live (2026-09-13): without this,
+// Super Pesquisa's background orchestration silently stalled forever
+// partway through its first tab navigation, with no error anywhere,
+// because the service worker was torn down mid-task.
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== "superPesquisaKeepAlive") return;
+  port.onMessage.addListener(() => {});
+});
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "sendPrices") {
     handleSendPrices(request.cards).then(sendResponse);
@@ -295,6 +355,22 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "scrapeStoresFromLista") {
     handleScrapeStoresFromLista(request.stores).then(sendResponse);
     return true;
+  }
+  if (request.action === "getListaFiltros") {
+    handleGetListaFiltros(sender.tab?.id).then(sendResponse);
+    return true;
+  }
+  if (request.action === "startSuperPesquisa") {
+    // Fire-and-forget, same reasoning as loadPendingPrices just below: this
+    // opens and drives a whole second tab through two searches, which can
+    // take a genuine while — the result travels back to the calling tab as
+    // its own chrome.tabs.sendMessage instead (see handleStartSuperPesquisa).
+    handleStartSuperPesquisa(request.payload, sender.tab?.id);
+    return false;
+  }
+  if (request.action === "superPesquisaFinalized") {
+    handleSuperPesquisaFinalized(request, sender.tab?.id);
+    return false;
   }
   if (request.action === "fetchCardTags") {
     handleFetchCardTags(request.set, request.number).then(sendResponse);
@@ -799,7 +875,16 @@ async function handleInstallSearchOverride(tabId) {
           ...payload.lojas,
           tipoFiltro: "2",
           favoritas: storeIds,
-          quantidadeLimite: String(storeIds.length),
+          // quantidadeLimite caps how many stores a single split purchase can
+          // span in the RESULT -- it has nothing to do with how many stores
+          // are in `favoritas` above. It's the same "Até N lojas" <select>
+          // (id="txt_max_lojas") the native UI shows, whose only valid values
+          // are 1-20 or "0" for "sem limite" -- confirmed live (2026-09-14)
+          // that sending storeIds.length here (e.g. "22") makes the backend
+          // reject the whole request as invalid data. "0" keeps every one of
+          // the scoped stores eligible, same as leaving the native select on
+          // its default.
+          quantidadeLimite: "0",
         };
         return originalPesquisar(payload);
       };
@@ -1704,6 +1789,676 @@ async function readInvalidDeckListLines(tabId) {
   }
 }
 
+// ── Super Pesquisa ───────────────────────────────────────────────────────────
+/**
+ * "Super Pesquisa" opens a second, focused Compra por Lista tab and searches
+ * the user's current card list padded with cards pulled from a few recent
+ * public decks (a mix of formats), with no cap on how many stores the plan
+ * can use. The padding is never bought — it exists only to make LigaMagic's
+ * own store-selection algorithm consider a much wider slice of the
+ * marketplace than a small list alone ever surfaces. Confirmed live
+ * (2026-09-13): the exact same 5 cards, searched alone with no store-count
+ * cap, settled on 2 stores; padded with ~45 unrelated staples under the same
+ * settings, those same 5 cards spread across 4 different stores, including
+ * one that never appeared at all in the small search.
+ *
+ * Once that wider store set is known, a second, CLEAN search runs — just the
+ * user's real cards, no padding — scoped to exactly those discovered stores
+ * via the same custom-store-search mechanism the "Buscar Lojas" bar already
+ * uses (handleInstallSearchOverride/handleSyncCustomStoreIds). That keeps the
+ * final numbers (price, frete) real and un-inflated by padding, and lets
+ * LigaMagic's own optimizer — not a hand-rolled one — work out the actual
+ * best split within that pool: it already handles stock limits, quantity
+ * splitting across stores, and per-store minimums correctly, none of which
+ * this feature tries to reimplement.
+ *
+ * Opening/driving a second tab isn't something a content script can do on
+ * its own (chrome.tabs is background-only) — super-pesquisa.js just captures
+ * the calling tab's current card list, baseline cost and filters, and hands
+ * them here.
+ */
+
+// LigaMagic's own hard limit on a single Compra por Lista search — confirmed
+// live 2026-09-13: a 111-line list is rejected outright ("A pesquisa é
+// limitada em 110 cards."), a 110-line one searches normally, all 110 lines
+// matched. Not documented anywhere on the site itself.
+//
+// This counts DISTINCT LINES in the submitted list (one per card name,
+// regardless of its own quantity), not total copies bought or lines in a
+// finished purchase. Confirmed live (2026-09-14): a 99-line Super Pesquisa
+// search whose quantities summed to 209 copies, then split by LigaMagic's
+// own optimizer across 28 different stores into 157 separate purchase
+// lines, went through with no rejection -- both of those far larger numbers
+// come from stock-splitting and per-line quantity after the search already
+// succeeded, not from the search request itself, which only ever saw 99
+// lines. The original 2026-09-13 test happened to use one copy per line, so
+// line count and total quantity were the same number there and couldn't
+// tell the two apart; this run resolves that ambiguity.
+const SUPER_PESQUISA_MAX_CARDS = 110;
+
+// LigaMagic's own per-line quantity ceiling for a single card in one search
+// -- confirmed live: the site rejects a single line asking for more than
+// this (8 for a nonbasic card, 40 for a basic land). The discovery phase
+// below pushes the user's own real cards straight to this ceiling on
+// purpose (see SUPER_PESQUISA_DISCOVERY_TARGET_TOTAL_QTY) instead of a
+// scaled-down "stress" fraction of it.
+const SUPER_PESQUISA_MAX_QTY_NORMAL = 8;
+const SUPER_PESQUISA_MAX_QTY_BASIC = 40;
+
+// Total quantity the discovery-phase search aims for, summed across every
+// line -- not the number of lines. Being conservative here matters:
+// confirmed live (2026-09-14) that pushing the total too high makes
+// LigaMagic's own search API return an outright error
+// ({"status":"error","message":"Erro interno ao processar a lista."} at
+// ~1040 total units, all 110 lines maxed to 8/40) or just never come back
+// within this extension's own timeout (~650 total units, at 105 lines of
+// qty 5 plus 5 basic-land lines of qty 25). 500 is a deliberately lower
+// target than either failure point. Rather than scaling every line's
+// quantity by a fixed multiplier and hoping the total lands somewhere safe,
+// the discovery line list is now built to add up to close to this number on
+// purpose (see handleStartSuperPesquisa): the user's own real cards first,
+// each at its own true per-line ceiling, then however many public-deck
+// padding lines (also at that ceiling) fit in whatever budget is left.
+const SUPER_PESQUISA_DISCOVERY_TARGET_TOTAL_QTY = 500;
+
+// Checked against the user's OWN target lines, to decide whether one of
+// them should use the basic-land ceiling instead of the regular one. No
+// longer used to inject extra synthetic basic-land lines into discovery
+// (removed 2026-09-15): a store that simply doesn't stock basics could
+// still be the best match for the cards the user actually wants, and
+// injecting basics into every discovery search gave such a store no way to
+// show up unless it also happened to sell basics.
+const SUPER_PESQUISA_BASIC_LANDS = ["Plains", "Island", "Swamp", "Mountain", "Forest"];
+
+// Recent decks of a mix of formats, so the padding isn't all one archetype's
+// staples — format ids match the site's own "Decks" nav menu links
+// (?filtro_formato=1 is Standard, =9 is Commander, etc.).
+const SUPER_PESQUISA_PADDING_FORMATS = [
+  { id: 9, label: "Commander" },
+  { id: 1, label: "Standard" },
+];
+const SUPER_PESQUISA_DECKS_PER_FORMAT = 4; // how many recent decks to try per format before moving to the next one
+const SUPER_PESQUISA_TAB_TIMEOUT_MS = 15_000;
+// After "Próximo" on the card-list step, LigaMagic validates every line
+// against its own catalog server-side and silently rewrites recognized ones
+// to its own catalog display name in place (this is the site's own list
+// parser doing its normal job on whatever plain-text list it's handed --
+// nothing this codebase writes or rewrites), before the "Pesquisar" button
+// for the next step appears. Confirmed live (2026-09-14): for a plain
+// 22-card list, that alone ran well past SUPER_PESQUISA_TAB_TIMEOUT_MS's
+// 15s -- a tab that had been sitting there long enough to look permanently
+// stuck turned out to still complete on its own once given more time,
+// landing on a fully matched, error-free list with "Pesquisar" ready. Kept
+// as its own constant rather than just reusing SUPER_PESQUISA_TAB_TIMEOUT_MS
+// for this wait too, since that one's still the right, short timeout for an
+// actual page load.
+const SUPER_PESQUISA_VALIDATE_TIMEOUT_MS = 90_000;
+// A padded ~110-card search is a genuinely heavy call — confirmed live it
+// takes well past the few seconds a small search does.
+const SUPER_PESQUISA_SEARCH_TIMEOUT_MS = 60_000;
+// How many times a search retries after dropping card names LigaMagic
+// rejected outright, before giving up — approved by the user (2026-09-13) as
+// a one-shot fallback, not a loop: a public deck's own card should almost
+// always already be a name the marketplace recognizes, since it's the same
+// database, but an unusual spelling or a promo-only name can still slip
+// through.
+const SUPER_PESQUISA_MAX_RETRIES = 1;
+
+function superPesquisaLog(...args) {
+  console.log("[LigaMagic Tracker | Super Pesquisa]", ...args);
+}
+
+/**
+ * Reads two things from the page's own wizard state, fresh:
+ *   - caracteristicas: the general idioma/extras/qualidade/estoque/pré-venda
+ *     filter panel, so the second tab's searches replicate it exactly.
+ *   - usouVersoesExatas: whether the user's own submitted list pinned a
+ *     specific edition/idioma/qualidade/extras/número per card (typed inline
+ *     tags), rather than relying only on that general panel — read straight
+ *     off wizard.json.cards[i].edicao/idioma/qualidade/extras/sNumber, which
+ *     LigaMagic itself leaves empty per card whenever no such tag was typed
+ *     for it (confirmed live 2026-09-13). Lets Super Pesquisa auto-replicate
+ *     whichever the user actually did, instead of asking.
+ */
+async function handleGetListaFiltros(tabId) {
+  if (tabId == null) return { caracteristicas: null, usouVersoesExatas: false };
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId },
+      world: "MAIN",
+      func: () => {
+        if (typeof wizard === "undefined") return { caracteristicas: null, usouVersoesExatas: false };
+        const cards = wizard.json?.cards ?? [];
+        const usouVersoesExatas = cards.some(
+          (c) => c.edicao || c.idioma || c.qualidade || c.sNumber || (Array.isArray(c.extras) && c.extras.length > 0),
+        );
+        return { caracteristicas: wizard.json?.caracteristicas ?? null, usouVersoesExatas };
+      },
+    });
+    return results[0]?.result ?? { caracteristicas: null, usouVersoesExatas: false };
+  } catch {
+    return { caracteristicas: null, usouVersoesExatas: false }; // not a scriptable ligamagic.com.br page right now
+  }
+}
+
+/** Pokes the same filters directly into the new tab's own wizard state — bypassing the UI, same style handleSyncCustomStoreIds already uses for the custom-store list. */
+async function applyListaFiltros(tabId, filtros) {
+  if (!filtros) return;
+  await chrome.scripting
+    .executeScript({
+      target: { tabId },
+      world: "MAIN",
+      func: (f) => {
+        if (typeof wizard !== "undefined" && wizard.json) {
+          wizard.json.caracteristicas = { ...wizard.json.caracteristicas, ...f };
+        }
+      },
+      args: [filtros],
+    })
+    .catch(() => {});
+}
+
+/** "1 Card Name" / "1 card name [qualidade=...]..." → "card name", for de-duplicating padding against the user's own cards regardless of which list format was chosen. */
+function cardNameFromLine(line) {
+  return line
+    .replace(/^\d+\s+/, "")
+    .split("[")[0]
+    .trim()
+    .toLowerCase();
+}
+
+/** Swaps just the leading quantity of a "qty name..." line, keeping the name and any exact-version "[...]" tag untouched. */
+function lineWithQty(line, qty) {
+  return line.replace(/^\d+\s+/, `${qty} `);
+}
+
+async function fetchRecentDeckIds(tabId, formatId, timeoutMs) {
+  await chrome.tabs.update(tabId, { url: `https://www.ligamagic.com.br/?view=dks/decks&filtro_formato=${formatId}` });
+  if (!(await waitForTabComplete(tabId, timeoutMs))) return [];
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        const links = [...document.querySelectorAll('a[href*="view=dks/deck&id="]')];
+        return [...new Set(links.map((a) => (a.getAttribute("href").match(/id=(\d+)/) ?? [])[1]).filter(Boolean))];
+      },
+    });
+    return results[0]?.result ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/** Same "dk-val-1-*" board scraper-deck.js already reads, generalized to any deck id (own or public — it's a plain DOM read either way) and paired with quantity for a directly search-ready "N Name" line. */
+async function fetchDeckLines(tabId, deckId, timeoutMs) {
+  await chrome.tabs.update(tabId, { url: `https://www.ligamagic.com.br/?view=dks/deck&id=${deckId}` });
+  if (!(await waitForTabComplete(tabId, timeoutMs))) return [];
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        const rows = [...document.querySelectorAll('[id^="dk-val-1-"] .deck-line')];
+        const cards = [];
+        for (const row of rows) {
+          const qtyEl = row.querySelector(".deck-qty");
+          const link = row.querySelector(".deck-card a");
+          if (!qtyEl || !link) continue;
+          const qty = parseInt(qtyEl.textContent.trim(), 10) || 1;
+          const name = link.getAttribute("data-lc-name");
+          if (name) cards.push({ qty, name });
+        }
+        return cards;
+      },
+    });
+    return results[0]?.result ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Pulls cards from a handful of recent public decks, across
+ * SUPER_PESQUISA_PADDING_FORMATS, until `neededCount` distinct new lines are
+ * collected or every format's decks are exhausted. Reads straight off the
+ * public "Decks" browser (?view=dks/decks) and individual deck pages — the
+ * exact same pages/markup a person browsing them manually would see; nothing
+ * is created, edited, favorited, or otherwise written to any account.
+ */
+async function pickPaddingDecks(tabId, neededCount, excludeNamesLower) {
+  const padding = [];
+  const seen = new Set(excludeNamesLower);
+
+  for (const format of SUPER_PESQUISA_PADDING_FORMATS) {
+    if (padding.length >= neededCount) break;
+    const deckIds = await fetchRecentDeckIds(tabId, format.id, SUPER_PESQUISA_TAB_TIMEOUT_MS);
+    superPesquisaLog(`${format.label}: ${deckIds.length} recent deck(s) found.`);
+
+    for (const deckId of deckIds.slice(0, SUPER_PESQUISA_DECKS_PER_FORMAT)) {
+      if (padding.length >= neededCount) break;
+      const cards = await fetchDeckLines(tabId, deckId, SUPER_PESQUISA_TAB_TIMEOUT_MS);
+      for (const { qty, name } of cards) {
+        if (padding.length >= neededCount) break;
+        const key = name.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        padding.push(`${qty} ${name}`);
+      }
+    }
+  }
+  return padding;
+}
+
+/**
+ * Waits (rather than just checking once) for the "recuperar última lista?"
+ * popup to show up right after a fresh page load, and dismisses it via its
+ * real "Ignorar Lista" button the moment it does — calling its internal
+ * clearLembrarDecisaoOpcional()/show() directly instead empties the
+ * textarea (confirmed live), so this always drives the actual button. Its
+ * buttons are plain `<input type="button">` elements, whose label lives in
+ * `.value`, not `.textContent` (confirmed live 2026-09-13 -- textContent is
+ * always empty on these, which silently no-op'd this dismiss whenever the
+ * popup actually appeared).
+ *
+ * Must run BEFORE fillCardListStep, never after: this popup's own dismiss
+ * handler resets the wizard's step-1 model, not just the visible textarea
+ * -- confirmed live (2026-09-13) that clicking it after cards were already
+ * typed and submitted wipes them, so the very next "Pesquisar" click fails
+ * with the site's own "Preencha sua Lista de Cards" validation error. A
+ * fixed check immediately after navigation isn't reliable either: on a
+ * loaded page this popup can render asynchronously, slightly after that
+ * check already ran and found nothing -- hence polling for a few seconds
+ * instead of a single look.
+ */
+async function waitAndDismissCardsFromStoragePopupIfAny(tabId, timeoutMs = 4_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    let dismissed = false;
+    try {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => {
+          const popup = document.getElementById("popup-cards-from-storage");
+          if (!popup || getComputedStyle(popup).display === "none") return false;
+          [...popup.querySelectorAll(".botao")].find((b) => (b.value ?? b.textContent).trim() === "Ignorar Lista")?.click();
+          return true;
+        },
+      });
+      dismissed = results[0]?.result ?? false;
+    } catch {
+      dismissed = false; // tab mid-navigation — keep polling
+    }
+    if (dismissed) return true;
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  return false;
+}
+
+/** Polls until the wizard's next step actually has a visible "Pesquisar" button — replaces an earlier fixed 800ms settle-time that a heavier, ~110-card list could outlast (confirmed live 2026-09-13: the button just wasn't there yet at that fixed checkpoint). */
+async function waitForPesquisarStepReady(tabId, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    let ready = false;
+    try {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () =>
+          !![...document.querySelectorAll(".botao")].find(
+            (b) => b.textContent.trim() === "Pesquisar" && b.offsetParent !== null,
+          ),
+      });
+      ready = results[0]?.result ?? false;
+    } catch {
+      ready = false; // tab mid-navigation — keep polling
+    }
+    if (ready) return true;
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  return false;
+}
+
+async function fillCardListStep(tabId, cardListText) {
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    func: (text) => {
+      const ta = document.getElementById("card_list");
+      if (!ta) return;
+      ta.value = text;
+      ta.dispatchEvent(new Event("input", { bubbles: true }));
+      ta.dispatchEvent(new Event("change", { bubbles: true }));
+      const proximo = [...document.querySelectorAll(".botao")].find(
+        (b) => b.textContent.trim() === "Próximo" && b.offsetParent !== null,
+      );
+      proximo?.click();
+    },
+    args: [cardListText],
+  });
+}
+
+/**
+ * With no `scopedStoreIds`: raises "Quantidade Máxima de Lojas" to unlimited
+ * (both in wizard.json directly and via the visible field, since it's
+ * unclear from the outside whether something re-derives one from the other
+ * right before pesquisar() fires) under "Todas Lojas", the default filter,
+ * so this search sees every store on the platform with nothing excluded by
+ * construction — this is the discovery search.
+ *
+ * With `scopedStoreIds`: installs the same custom-store-search override the
+ * "Buscar Lojas" bar already uses (handleInstallSearchOverride /
+ * handleSyncCustomStoreIds — see store-search-override.js for the manual
+ * side of this) and switches the page to "Minhas Favoritas + Buscar Lojas",
+ * the only filter mode that override actually intercepts, so the search
+ * only considers exactly the stores a prior discovery search surfaced —
+ * this is the final, real-quantity search.
+ *
+ * Either way, clicks "Pesquisar" last.
+ */
+async function submitSearchStep(tabId, scopedStoreIds) {
+  if (scopedStoreIds && scopedStoreIds.length > 0) {
+    await handleInstallSearchOverride(tabId);
+    await handleSyncCustomStoreIds(scopedStoreIds, tabId);
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        const radio = document.querySelector('input[name="txt_tipo_filtro"][value="2"]');
+        if (radio && !radio.checked) {
+          radio.checked = true;
+          radio.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+      },
+    });
+  } else {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      world: "MAIN",
+      func: () => {
+        if (typeof wizard !== "undefined" && wizard.json?.lojas) {
+          wizard.json.lojas.quantidadeLimite = "0";
+        }
+      },
+    });
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        const maxLojas = document.getElementById("txt_max_lojas");
+        if (maxLojas) {
+          maxLojas.value = "0";
+          maxLojas.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+      },
+    });
+  }
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    func: () => {
+      const pesquisar = [...document.querySelectorAll(".botao")].find(
+        (b) => b.textContent.trim() === "Pesquisar" && b.offsetParent !== null,
+      );
+      pesquisar?.click();
+    },
+  });
+}
+
+/** Polls "#main_calculando_fretes" (the same indicator analise-economia.js's own freteAindaCalculando() reads) until shipping cost has finished calculating for every assigned store, or the timeout elapses. */
+async function waitForFreteCalculado(tabId, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    let done = false;
+    try {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => {
+          const indicador = document.getElementById("main_calculando_fretes");
+          return !indicador || indicador.classList.contains("d-none");
+        },
+      });
+      done = results[0]?.result ?? false;
+    } catch {
+      done = false; // tab mid-navigation — keep polling
+    }
+    if (done) return true;
+    await new Promise((r) => setTimeout(r, 400));
+  }
+  return false;
+}
+
+/**
+ * Waits for one Compra por Lista search to settle into either outcome:
+ *   - success: "#btn-finalizar" renders (results are in).
+ *   - rejected: an error modal shows ("Ops! ..."), either the 110-card cap
+ *     or one or more card names LigaMagic didn't recognize.
+ * The modal concatenates every unrecognized name with no separator between
+ * them, so this doesn't try to split them apart — it just returns the raw
+ * blob, and the caller (which already has its own list of submitted lines)
+ * checks each of ITS OWN names for membership instead, sidestepping the
+ * parsing problem entirely.
+ */
+async function waitForSearchOutcome(tabId, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    let result = null;
+    try {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => {
+          if (document.getElementById("btn-finalizar")) return { ok: true };
+          const modal = [...document.querySelectorAll(".modal")].find(
+            (m) => m.offsetParent !== null && /Ops!/.test(m.textContent),
+          );
+          if (!modal) return null;
+          const text = modal.textContent.trim();
+          const notFoundMatch = text.match(/Cards não encontrados([\s\S]*?)Verifique/);
+          return notFoundMatch
+            ? { ok: false, notFoundBlob: notFoundMatch[1].toLowerCase() }
+            : { ok: false, error: text.slice(0, 300) };
+        },
+      });
+      result = results[0]?.result ?? null;
+    } catch {
+      result = null; // tab mid-navigation — keep polling
+    }
+    if (result) return result;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  return { ok: false, error: "timeout" };
+}
+
+/**
+ * Drives one full Compra por Lista search on `tabId` from a fresh page load
+ * through to a read-back `resultado`: navigate, (re)apply filters, fill the
+ * card list, advance, submit (unrestricted, or scoped to `scopedStoreIds` —
+ * see submitSearchStep), and wait for the outcome — retrying once
+ * (SUPER_PESQUISA_MAX_RETRIES) by dropping any card name the site rejected
+ * outright.
+ */
+async function driveSuperPesquisaSearch(tabId, initialLines, { filtros, scopedStoreIds } = {}) {
+  let lines = [...initialLines];
+
+  for (let attempt = 0; attempt <= SUPER_PESQUISA_MAX_RETRIES; attempt++) {
+    await chrome.tabs.update(tabId, { url: "https://www.ligamagic.com.br/?view=cards/lista" });
+    if (!(await waitForTabComplete(tabId, SUPER_PESQUISA_TAB_TIMEOUT_MS))) {
+      return { ok: false, error: "A aba não terminou de carregar." };
+    }
+
+    await applyListaFiltros(tabId, filtros);
+
+    await waitAndDismissCardsFromStoragePopupIfAny(tabId);
+    await fillCardListStep(tabId, lines.join("\n"));
+    if (!(await waitForPesquisarStepReady(tabId, SUPER_PESQUISA_VALIDATE_TIMEOUT_MS))) {
+      return { ok: false, error: "A etapa de pesquisa não ficou pronta a tempo." };
+    }
+    await submitSearchStep(tabId, scopedStoreIds);
+
+    const outcome = await waitForSearchOutcome(tabId, SUPER_PESQUISA_SEARCH_TIMEOUT_MS);
+    if (outcome.ok) {
+      // "#btn-finalizar" rendering only means results exist, not that every
+      // assigned store's shipping fee has finished calculating -- confirmed
+      // live (2026-09-13) that reading resultado right away can catch a
+      // store's frete as still null, which any total computed from it would
+      // silently treat as zero, understating the real cost and reporting a
+      // false "savings" that doesn't survive a moment later once frete
+      // settles.
+      await waitForFreteCalculado(tabId, SUPER_PESQUISA_SEARCH_TIMEOUT_MS);
+      const resultado = await handleGetListaResultado(tabId);
+      return { ok: true, resultado };
+    }
+
+    if (outcome.notFoundBlob && attempt < SUPER_PESQUISA_MAX_RETRIES) {
+      const before = lines.length;
+      lines = lines.filter((line) => !outcome.notFoundBlob.includes(cardNameFromLine(line)));
+      if (lines.length === before) {
+        return { ok: false, error: "Cards não reconhecidos pela pesquisa, mas não foi possível identificar quais." };
+      }
+      superPesquisaLog(`Pesquisa rejeitou ${before - lines.length} card(s) não reconhecido(s), tentando de novo sem eles.`);
+      continue;
+    }
+    return { ok: false, error: outcome.error ?? "Erro desconhecido na pesquisa." };
+  }
+  return { ok: false, error: "Excedeu o número de tentativas." };
+}
+
+/** Every distinct LigaMagic store ID present in a resultado -- `bloco.loja` is the numeric store ID, same one `txt_lojafav[]` checkboxes use. */
+function harvestStoreIds(resultado) {
+  const ids = new Set();
+  for (const bloco of Object.values(resultado ?? {})) {
+    if (bloco?.loja != null) ids.add(String(bloco.loja));
+  }
+  return [...ids];
+}
+
+/**
+ * Maps the second tab's own id to the origin tab that started it, purely so
+ * handleSuperPesquisaFinalized (triggered by a message FROM that second tab,
+ * once it's done applying its own reorganizações) knows which tab to relay
+ * the final result to — the async closure inside handleStartSuperPesquisa
+ * isn't in scope by the time that separate message arrives. Cleared on
+ * every path out of a run (success relay, or the catch block below), so
+ * this never accumulates beyond however many Super Pesquisa runs are
+ * genuinely in flight at once.
+ */
+const superPesquisaOriginByTabId = new Map();
+
+async function handleStartSuperPesquisa(payload, originTabId) {
+  const { targetLines, filtros, baseline, baselineComReorg } = payload ?? {};
+  if (!Array.isArray(targetLines) || targetLines.length === 0) return;
+
+  const reportBack = (message) => {
+    if (originTabId == null) return;
+    chrome.tabs.sendMessage(originTabId, { action: "superPesquisaResult", ...message }).catch(() => {});
+  };
+
+  let tab;
+  try {
+    tab = await chrome.tabs.create({ url: "https://www.ligamagic.com.br/?view=cards/lista", active: true });
+    if (originTabId != null) superPesquisaOriginByTabId.set(tab.id, originTabId);
+    if (!(await waitForTabComplete(tab.id, SUPER_PESQUISA_TAB_TIMEOUT_MS))) {
+      throw new Error("A aba não terminou de carregar.");
+    }
+
+    // Phase 1 — discovery: the user's real cards, each pushed straight to
+    // its own true per-line ceiling (SUPER_PESQUISA_MAX_QTY_NORMAL/BASIC),
+    // plus as much public-deck padding -- at that same nonbasic ceiling -- as
+    // fits under SUPER_PESQUISA_DISCOVERY_TARGET_TOTAL_QTY's total-quantity
+    // budget (see that constant for why a budget instead of a per-line
+    // multiplier, and why this no longer injects synthetic basic-land
+    // lines). Searched under "Todas Lojas" (no store restriction). The
+    // padding is never bought -- it exists only to make LigaMagic's own
+    // store-selection algorithm consider a much wider slice of the
+    // marketplace than the user's own small list alone ever surfaces.
+    // Confirmed live (2026-09-13): the exact same 5 cards, searched alone,
+    // settled on 2 stores; padded with ~45 unrelated staples under the same
+    // settings, those same 5 cards spread across 4 different stores,
+    // including one that never appeared at all in the small search.
+    const usedNames = new Set(targetLines.map(cardNameFromLine));
+
+    const discoveryTargetLines = targetLines.map((line) => {
+      const isBasic = SUPER_PESQUISA_BASIC_LANDS.some((nome) => nome.toLowerCase() === cardNameFromLine(line));
+      return lineWithQty(line, isBasic ? SUPER_PESQUISA_MAX_QTY_BASIC : SUPER_PESQUISA_MAX_QTY_NORMAL);
+    });
+    const realTotalQty = discoveryTargetLines.reduce((sum, line) => sum + (parseInt(line, 10) || 0), 0);
+
+    // Padding always comes from public decklists (never basics), so it
+    // always uses the nonbasic ceiling -- however many lines of it fit
+    // within BOTH what's left of the total-quantity budget and what's left
+    // of the SUPER_PESQUISA_MAX_CARDS line-count cap, whichever runs out
+    // first.
+    const remainingQtyBudget = Math.max(0, SUPER_PESQUISA_DISCOVERY_TARGET_TOTAL_QTY - realTotalQty);
+    const remainingLineSlots = Math.max(0, SUPER_PESQUISA_MAX_CARDS - targetLines.length);
+    const neededPadding = Math.min(remainingLineSlots, Math.floor(remainingQtyBudget / SUPER_PESQUISA_MAX_QTY_NORMAL));
+
+    const rawPadding = neededPadding > 0 ? await pickPaddingDecks(tab.id, neededPadding, usedNames) : [];
+    const paddingLines = rawPadding.map((line) => lineWithQty(line, SUPER_PESQUISA_MAX_QTY_NORMAL));
+
+    const discoveryLines = [...discoveryTargetLines, ...paddingLines];
+    const totalQty = realTotalQty + rawPadding.length * SUPER_PESQUISA_MAX_QTY_NORMAL;
+    superPesquisaLog(
+      `Descoberta: ${targetLines.length} carta(s) do usuário + ${rawPadding.length} de preenchimento ` +
+        `(${discoveryLines.length}/${SUPER_PESQUISA_MAX_CARDS} linhas, ${totalQty}/` +
+        `${SUPER_PESQUISA_DISCOVERY_TARGET_TOTAL_QTY} unidades no total).`,
+    );
+
+    const discovery = await driveSuperPesquisaSearch(tab.id, discoveryLines, { filtros });
+    if (!discovery.ok) throw new Error(discovery.error ?? "Falha na pesquisa de descoberta.");
+
+    // Phase 2 — the real search: just the user's real cards, at their real
+    // quantities, no padding, scoped to exactly the stores phase 1 surfaced
+    // via the same custom-store-search mechanism the "Buscar Lojas" bar
+    // already uses (handleInstallSearchOverride/handleSyncCustomStoreIds).
+    // That keeps the final numbers (price, frete) real and un-inflated by
+    // padding, and lets LigaMagic's own optimizer -- not a hand-rolled one --
+    // work out the actual best split within that pool. This can, in
+    // principle, miss a genuinely good store that never showed up in the
+    // padding-driven discovery pass; that tradeoff is deliberate here,
+    // favoring one lean, real-quantity search plus a small, targeted one
+    // over repeatedly poking at an already-placed result one card at a time,
+    // which forces LigaMagic's own frete recalculation on every single edit.
+    const storeIds = harvestStoreIds(discovery.resultado);
+    superPesquisaLog(`Descoberta encontrou ${storeIds.length} loja(s) -- refazendo a pesquisa só com as cartas reais, restrita a elas.`);
+
+    const final = await driveSuperPesquisaSearch(tab.id, targetLines, { filtros, scopedStoreIds: storeIds });
+    if (!final.ok) throw new Error(final.error ?? "Falha na pesquisa final.");
+
+    superPesquisaLog("Pesquisa concluída — pedindo pra própria aba aplicar reorganização.");
+    // From here on, the second tab's own content script (super-pesquisa.js,
+    // injected automatically like on any other ligamagic.com.br page) takes
+    // over: applying every viable "economia por reorganização" for real is a
+    // UI/DOM concern, not something this service worker can or should do
+    // directly. It reports back via "superPesquisaFinalized", handled below.
+    await chrome.tabs.sendMessage(tab.id, {
+      action: "superPesquisaFinalizeOnThisTab",
+      baseline,
+      baselineComReorg,
+    });
+  } catch (err) {
+    superPesquisaLog("Falhou —", err.message);
+    if (tab?.id != null) superPesquisaOriginByTabId.delete(tab.id);
+    reportBack({ ok: false, error: err.message });
+  }
+}
+
+/** Relays the second tab's own final numbers (see the "superPesquisaFinalizeOnThisTab" message above) back to whichever tab actually started this run. */
+function handleSuperPesquisaFinalized(request, secondTabId) {
+  if (secondTabId == null) return;
+  const originTabId = superPesquisaOriginByTabId.get(secondTabId);
+  superPesquisaOriginByTabId.delete(secondTabId);
+  if (originTabId == null) return;
+
+  const { baseline, baselineComReorg, totalSemReorgDepois, totalComReorgDepois } = request;
+  superPesquisaLog(
+    `Concluído: base R$ ${(baselineComReorg ?? baseline ?? 0).toFixed(2)} -> ` +
+      `R$ ${(totalComReorgDepois ?? totalSemReorgDepois ?? 0).toFixed(2)} (ambos com reorganização já aplicada).`,
+  );
+  chrome.tabs
+    .sendMessage(originTabId, {
+      action: "superPesquisaResult",
+      ok: true,
+      baseline,
+      baselineComReorg,
+      totalSemReorgDepois,
+      totalComReorgDepois,
+    })
+    .catch(() => {});
+}
+
 // ── Storage ────────────────────────────────────────────────────────────────────────
 // Settings
 const DEFAULT_SETTINGS = {
@@ -1735,6 +2490,7 @@ const DEFAULT_SETTINGS = {
   rememberListaFilters: false, // reapply the last manual filter selection on load, instead of the configured defaults
   addCopyListaButton: true, // whether the "Copiar Lista de Compras" button is injected into Compra por Lista results
   addAnaliseEconomia: true, // whether the "Análise de Economia" button is injected into Compra por Lista results
+  addSuperPesquisa: true, // whether the "Super Pesquisa" button is injected into Compra por Lista results
   addFreteCaroAlert: true, // whether an expensive store's shipping fee is highlighted on Compra por Lista results
   freteCaroLimiar: 35, // shipping fee (R$) above which a store is flagged as expensive, both by addFreteCaroAlert and inside the Análise de Economia modal
   // Cached result of the last economy analysis, keyed by a cheap fingerprint

@@ -92,9 +92,25 @@ página individual da carta
   de cada carta nas lojas certas pra realizar aquela sugestão específica na
   tela de resultados, e recalcula a análise em seguida (uma sugestão
   aplicada pode mudar as outras disponíveis)
+- Botão "Aplicar Economia" no rodapé da modal (ao lado de "Copiar Análise")
+  — aplica de uma vez todas as reorganizações possíveis, na ordem que
+  maximiza a economia total (uma sugestão aplicada pode invalidar ou mudar
+  outra, então cada uma é recalculada a partir do estado real antes de
+  aplicar a próxima)
 - Alerta de frete caro — destaca em vermelho o frete de uma loja acima do
   valor configurado no painel (padrão R$ 35) e mostra um aviso temporário
   sugerindo bloquear a loja e pesquisar de novo
+- Botão "Super Pesquisa" — abre uma nova aba e refaz a mesma lista de
+  compras numa pesquisa mais ampla (misturando cartas de decks públicos só
+  de preenchimento pra forçar o site a considerar mais lojas, depois
+  restringindo a pesquisa final a essas lojas descobertas), na tentativa de
+  achar um total menor do que essa página sozinha encontraria. Detecta
+  sozinho se a lista original usava versões exatas por carta ou só o filtro
+  geral, e repete o mesmo modo na nova busca. Ao terminar, aplica na própria
+  aba nova todas as economias por reorganização possíveis e mostra uma
+  modal comparando os quatro totais (antes e depois da Super Pesquisa, com
+  e sem reorganização) e a economia total obtida; a aba original só ganha
+  um aviso de quanto foi economizado, sem alterar nada nela
 
 ### Carrinho — `?view=mp/carrinho`
 - Botão "Copiar Lista" — copia os cards do carrinho no formato detalhado do
@@ -134,8 +150,14 @@ página individual da carta
 - Clique no preço abre a página da carta no LigaMagic (opcional)
 
 ## Scryfall (scryfall.com)
-- Ícone de busca dentro do campo de pesquisa do cabeçalho — clicar nele
-  dispara a mesma busca que apertar Enter já dispara
+- Ícone de busca (lupa roxa, lado esquerdo do campo de pesquisa do
+  cabeçalho) — é um link de verdade: clique simples dispara a mesma busca
+  que apertar Enter já dispara, e ctrl+clique ou clique do meio abre a busca
+  numa aba nova
+- 5 pipetas de identidade de cor (W/U/B/R/G) à direita do campo de pesquisa
+  do cabeçalho — clicar numa alterna (adiciona/remove) o termo `ci:<cor>` na
+  busca; acende quando o termo correspondente já está no campo (clicado ou
+  digitado à mão)
 - Overlay de preço — coluna "R$" na tabela de impressões, em resultados de
   busca (`as=full`) e na página individual da carta
 - Selo de preço em BRL sobre cada carta nos resultados de busca em grade
@@ -157,7 +179,7 @@ página individual da carta
   do popup da extensão, então pode ser editado pelos dois lugares
 
 ## EDHREC (edhrec.com)
-- Link "Ver no LigaMagic" na página de um comandante — abre a página da
+- Botão "Ver no LigaMagic" na página de um comandante — abre a página da
   carta no LigaMagic em uma nova aba
 
 ---

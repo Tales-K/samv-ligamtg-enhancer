@@ -439,6 +439,86 @@ function selecionarReorganizacoes(consolidado) {
   return resultados;
 }
 
+/** Sum of every card really bought plus the frete of only the stores that really sell at least one of them -- the same "total atual" shape used throughout this file, factored out because maximizarReorganizacoes below needs it fresh at every step of a simulated chain, not just once at the top of analisarEconomiaAsync. */
+function calcularTotalConsolidado(consolidado) {
+  const lojasComCompra = new Set(consolidado.cartasPorLoja.keys());
+  const totalCards = consolidado.cards.reduce((soma, c) => soma + c.valorAtual, 0);
+  const totalFrete = consolidado.lojas
+    .filter((l) => lojasComCompra.has(l.nome))
+    .reduce((soma, l) => soma + l.frete, 0);
+  return totalCards + totalFrete;
+}
+
+/**
+ * Produces a new resultado-like object with one reorganização already
+ * applied in-memory: the closed store's own block is dropped entirely (same
+ * effect as its real "remover todos os itens desta loja" control), and each
+ * relocated card's destination row(s) get their quantidade bumped by
+ * however much moved there -- mirrors exactly what aplicarPlanoNaTela (in
+ * the UI half of this file) does for real, but against a plain object
+ * instead of the DOM, so a chain of reorganizações can be explored and
+ * measured without ever touching a live page. Used by
+ * maximizarReorganizacoes below.
+ */
+function simularAplicacaoReorganizacao(resultado, reorg) {
+  const novo = { ...resultado };
+  for (const realoc of reorg.realocacoes) {
+    for (const [, { qtd, bloco, linha }] of realoc.destino) {
+      const blocoAtual = novo[bloco];
+      if (!blocoAtual) continue;
+      const cartas = [...blocoAtual.cartas];
+      const carta = cartas[linha];
+      if (!carta) continue;
+      cartas[linha] = { ...carta, quantidade: (carta.quantidade ?? 0) + qtd };
+      novo[bloco] = { ...blocoAtual, cartas };
+    }
+  }
+  delete novo[reorg.bloco];
+  return novo;
+}
+
+/**
+ * Repeatedly finds and applies (only in-memory) the single best
+ * reorganização still available, since applying one can change what else is
+ * still viable or how much it's worth -- a store just vacated becomes
+ * available as a relocation destination for the next one, one that just
+ * filled up may no longer have the free stock a still-pending suggestion
+ * was counting on. This is the same reasoning aplicarPlanoEconomia already
+ * follows for a single real application (recomputing the whole analysis
+ * fresh afterward) -- this just runs that same idea in a loop, purely in
+ * memory, to work out the actual maximum achievable total and the order
+ * that reaches it, instead of naively summing every currently-listed
+ * suggestion's own economia (which can double-count: two suggestions can
+ * depend on the same relocation capacity, or on each other's store staying
+ * open).
+ *
+ * Returns { economiaTotal, passos, resultadoFinal } -- passos is
+ * [{ nome, frete, economia }] in application order, for display. A real DOM
+ * application should still re-derive its own plano from a fresh, real
+ * analysis at each step rather than trusting these simulated ones, since
+ * they're computed against progressively more hypothetical states the
+ * longer the chain runs (see aplicarTodasReorganizacoes in the UI half of
+ * this file, and its local counterpart in super-pesquisa.js).
+ */
+function maximizarReorganizacoes(resultadoInicial) {
+  let resultadoAtual = resultadoInicial;
+  let economiaTotal = 0;
+  const passos = [];
+
+  while (true) {
+    const consolidado = consolidarResultado(resultadoAtual);
+    if (consolidado.lojasSemFrete.length > 0) break;
+    const reorganizacoes = selecionarReorganizacoes(consolidado);
+    if (reorganizacoes.length === 0) break;
+    const melhor = reorganizacoes[0];
+    economiaTotal += melhor.economia;
+    passos.push({ nome: melhor.nome, frete: melhor.frete, economia: melhor.economia });
+    resultadoAtual = simularAplicacaoReorganizacao(resultadoAtual, melhor);
+  }
+
+  return { economiaTotal, passos, resultadoFinal: resultadoAtual };
+}
+
 /** Human-readable step-by-step for a reorganization: nothing is dropped, only moved. */
 function construirInstrucoesReorganizacao(reorg, totalAtual) {
   const linhas = [];
@@ -651,6 +731,12 @@ async function analisarEconomiaAsync(resultado, freteCaroLimiar = FRETE_CARO_LIM
     frete: l.frete,
   }));
 
+  // The actual maximum achievable by applying every viable reorganização in
+  // sequence -- never the naive sum of `reorganizacoes[].economia` above,
+  // since applying one can invalidate or change the value of another (see
+  // maximizarReorganizacoes's own doc comment).
+  const economiaMaximaReorganizacao = maximizarReorganizacoes(resultado).economiaTotal;
+
   return {
     consolidado,
     baseline: totalAtual,
@@ -658,6 +744,7 @@ async function analisarEconomiaAsync(resultado, freteCaroLimiar = FRETE_CARO_LIM
     totalFreteAtual,
     resultados,
     reorganizacoes,
+    economiaMaximaReorganizacao,
     alertasFreteCaro,
     freteCaroLimiar,
   };
@@ -665,11 +752,11 @@ async function analisarEconomiaAsync(resultado, freteCaroLimiar = FRETE_CARO_LIM
 
 // Bumped whenever the report's shape or the meaning of `economia` changes,
 // so a previously-cached analysis (computed under different semantics) is
-// never mistaken for a fresh one and shown as-is. Bumped to 8 for the
-// `plano` shape change ({ incrementar, fecharLojas } replacing { zerar,
-// incrementar } -- closing a store now actually drops its block/shipping
-// instead of just removing its cards one at a time).
-const ANALISE_CACHE_VERSION = 8;
+// never mistaken for a fresh one and shown as-is. Bumped to 9 for the new
+// `economiaMaximaReorganizacao` field (the actual max achievable by chaining
+// every viable reorganização, not a naive sum -- see
+// maximizarReorganizacoes).
+const ANALISE_CACHE_VERSION = 9;
 
 /** Cheap fingerprint of a search result, to know whether a cached analysis is still current. */
 function hashResultado(resultado) {
@@ -777,18 +864,23 @@ if (typeof document !== "undefined") {
   }
 
   /**
-   * Sums up "Economia por reorganização" opportunities into one "up to R$X"
-   * figure -- deliberately just this section, not "Economia de frete por
-   * remoção" too: reorganização never drops a card from the purchase, so
-   * every suggestion in it is a strict improvement with nothing given up,
-   * safe to headline on the button itself. Remoção trades away an actual
-   * card, which isn't something to imply is "available savings" before the
-   * user has even opened the modal to see what's being given up for it.
-   * Each entry is a different store, so there's no double-counting to guard
-   * against here the way there would be mixing the two sections together.
+   * The "up to R$X" figure shown on the button itself -- deliberately just
+   * "Economia por reorganização", not "Economia de frete por remoção" too:
+   * reorganização never drops a card from the purchase, so applying every
+   * viable one is a strict improvement with nothing given up, safe to
+   * headline before the user has even opened the modal. Remoção trades away
+   * an actual card, which isn't something to imply is "available savings"
+   * before the user sees what's being given up for it.
+   *
+   * This is `relatorio.economiaMaximaReorganizacao` -- the real maximum from
+   * chaining every viable reorganização (see maximizarReorganizacoes) -- and
+   * NOT a sum of each listed suggestion's own `economia`: two suggestions
+   * can depend on the same relocation capacity, or on each other's store
+   * staying open, so applying one can shrink or wipe out what another was
+   * worth. Summing them naively overstates what's actually achievable.
    */
   function calcularEconomiaTotalDisponivel(relatorio) {
-    return (relatorio.reorganizacoes ?? []).reduce((soma, reorg) => soma + reorg.economia, 0);
+    return relatorio.economiaMaximaReorganizacao ?? 0;
   }
 
   /** Shows or clears the caption -- see buildIndicadorEconomia for its own margin handling. */
@@ -942,12 +1034,9 @@ if (typeof document !== "undefined") {
     header.appendChild(summary);
 
     const aviso = document.createElement("div");
-    aviso.style.cssText = "margin-top: 6px; font-size: 11px; color: #888; font-style: italic;";
+    aviso.style.cssText = "margin-top: 4px; font-size: 11px; color: #888; font-style: italic;";
     aviso.textContent =
-      "Estimativa — considera apenas as lojas já presentes neste resultado e assume o frete atual de " +
-      'cada loja. Veja abaixo as três seções: "Alertas de frete caro" (lojas cujo frete sozinho já é ' +
-      'alto), "Economia por reorganização" (comprar as mesmas cartas em outra loja, sem remover nada) e ' +
-      '"Economia de frete por remoção" (deixar de comprar uma carta cara).';
+      "Estimativa — considera apenas as lojas já presentes neste resultado e assume o frete atual de cada loja.";
     header.appendChild(aviso);
 
     return header;
@@ -1042,14 +1131,26 @@ if (typeof document !== "undefined") {
   // essentially invisible as a section boundary -- and ties visually to
   // every other purple control this extension adds. ~4.9:1 text contrast at
   // 14% opacity, comfortably above the 4.5:1 WCAG AA floor.
-  function buildSectionTitle(text) {
+  function buildSectionTitle(text, subtitle) {
+    const wrap = document.createElement("div");
+    wrap.style.cssText =
+      "padding: 10px 20px; background: rgba(109, 79, 196, 0.14); " +
+      "border-bottom: 1px solid rgba(109, 79, 196, 0.35);";
+
     const title = document.createElement("div");
     title.style.cssText =
-      `padding: 10px 20px; font-size: 12px; font-weight: 700; color: ${SAMV_PURPLE}; ` +
-      "background: rgba(109, 79, 196, 0.14); border-bottom: 1px solid rgba(109, 79, 196, 0.35); " +
-      "text-transform: uppercase; letter-spacing: 0.02em;";
+      `font-size: 12px; font-weight: 700; color: ${SAMV_PURPLE}; text-transform: uppercase; letter-spacing: 0.02em;`;
     title.textContent = text;
-    return title;
+    wrap.appendChild(title);
+
+    if (subtitle) {
+      const sub = document.createElement("div");
+      sub.style.cssText = `margin-top: 3px; font-size: 11px; font-weight: 400; color: ${SAMV_PURPLE}; opacity: 0.85;`;
+      sub.textContent = subtitle;
+      wrap.appendChild(sub);
+    }
+
+    return wrap;
   }
 
   function buildEmptyMessage(text) {
@@ -1086,14 +1187,24 @@ if (typeof document !== "undefined") {
     body.style.cssText = "overflow-y: auto; flex: 1;";
 
     const limiar = relatorio.freteCaroLimiar ?? FRETE_CARO_LIMIAR_PADRAO;
-    body.appendChild(buildSectionTitle(`Alertas de frete caro (acima de R$ ${formatarMoeda(limiar)})`));
+    body.appendChild(
+      buildSectionTitle(
+        `Alertas de frete caro (acima de R$ ${formatarMoeda(limiar)})`,
+        "Lojas cujo frete sozinho já é considerado alto, mesmo sem nenhuma sugestão de economia envolvendo elas.",
+      ),
+    );
     if (relatorio.alertasFreteCaro.length === 0) {
       body.appendChild(buildEmptyMessage("Nenhuma loja com frete acima do valor configurado no painel da extensão."));
     } else {
       relatorio.alertasFreteCaro.forEach((item) => body.appendChild(buildAlertaFreteCaroRow(item)));
     }
 
-    body.appendChild(buildSectionTitle("Economia por reorganização"));
+    body.appendChild(
+      buildSectionTitle(
+        "Economia por reorganização",
+        "Nenhuma carta deixa de ser comprada — só muda a loja de origem, liberando o frete de uma loja inteira.",
+      ),
+    );
     if (relatorio.reorganizacoes.length === 0) {
       body.appendChild(
         buildEmptyMessage(
@@ -1111,7 +1222,12 @@ if (typeof document !== "undefined") {
       });
     }
 
-    body.appendChild(buildSectionTitle("Economia de frete por remoção"));
+    body.appendChild(
+      buildSectionTitle(
+        "Economia de frete por remoção",
+        "Deixar de comprar uma carta cara — \"economiza\" aqui não inclui o preço da própria carta, só o que sobra de fechar loja(s) e/ou realocar as outras cartas.",
+      ),
+    );
     if (relatorio.resultados.length === 0) {
       body.appendChild(
         buildEmptyMessage(
@@ -1137,6 +1253,29 @@ if (typeof document !== "undefined") {
     footer.style.cssText =
       "padding: 12px 20px; border-top: 1px solid #eee; display: flex; justify-content: flex-end; " +
       "gap: 8px; flex-shrink: 0;";
+
+    if (relatorio.reorganizacoes.length > 0) {
+      const aplicarTodasBtn = document.createElement("button");
+      aplicarTodasBtn.type = "button";
+      aplicarTodasBtn.textContent = "Aplicar Economia";
+      aplicarTodasBtn.style.cssText =
+        "padding: 6px 14px; border: none; border-radius: 4px; cursor: pointer; font-weight: 700; font-family: inherit;";
+      applySamvStyle(aplicarTodasBtn);
+      aplicarTodasBtn.addEventListener("click", async () => {
+        aplicarTodasBtn.disabled = true;
+        aplicarTodasBtn.textContent = "Aplicando...";
+        try {
+          await aplicarTodasReorganizacoes();
+          const button = document.getElementById("lgm-analise-economia-btn");
+          if (button) await handleAnaliseClick(button, true);
+        } catch (err) {
+          analiseLog("Falha ao aplicar todas as economias —", err.message);
+          aplicarTodasBtn.disabled = false;
+          aplicarTodasBtn.textContent = "Aplicar Economia";
+        }
+      });
+      footer.appendChild(aplicarTodasBtn);
+    }
 
     const copyBtn = document.createElement("button");
     copyBtn.type = "button";
@@ -1360,6 +1499,34 @@ if (typeof document !== "undefined") {
     await new Promise((resolve) => setTimeout(resolve, 50));
     const button = document.getElementById("lgm-analise-economia-btn");
     if (button) await handleAnaliseClick(button, true);
+  }
+
+  /**
+   * The "Aplicar Economia" footer button's real, DOM-driven counterpart to
+   * maximizarReorganizacoes: repeatedly re-fetches the live resultado, finds
+   * the single best reorganização still available right now, and applies it
+   * for real -- never trusting a plan computed against an earlier or
+   * simulated state, since applying one reorganização can change what else
+   * is viable (a store just vacated becomes a destination, one that just
+   * filled up may run out of the free stock a still-pending suggestion was
+   * counting on). Same reasoning aplicarPlanoEconomia already follows for a
+   * single real application; this just runs it in a loop until nothing is
+   * left to apply.
+   */
+  async function aplicarTodasReorganizacoes() {
+    while (true) {
+      const resultado = await sendMessage({ action: "getListaResultado" });
+      const consolidado = consolidarResultado(resultado);
+      if (consolidado.lojasSemFrete.length > 0) break;
+      const reorganizacoes = selecionarReorganizacoes(consolidado);
+      if (reorganizacoes.length === 0) break;
+      const melhor = reorganizacoes[0];
+      aplicarPlanoNaTela(construirPlanoAplicacaoReorganizacao(melhor));
+      // Room for the page's own handlers to settle (and for a store closing
+      // or a quantity moving to potentially retrigger frete recalculation)
+      // before the next iteration reads the live resultado again.
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
   }
 
   function initAnaliseEconomia() {

@@ -224,6 +224,11 @@
 "domain": "collecteplay.com.br"
 },
 {
+"id": "558333",
+"name": "CollectHub",
+"domain": "collecthub.com.br"
+},
+{
 "id": "243540",
 "name": "Condado Hobby",
 "domain": "condado.net.br"
@@ -249,6 +254,11 @@
 "domain": "dimensaoalternativa.com.br"
 },
 {
+"id": "210734",
+"name": "D20 LOJA",
+"domain": "d20loja.com.br"
+},
+{
 "id": "144330",
 "name": "Dalaran Games",
 "domain": "dalaran.games"
@@ -262,6 +272,11 @@
 "id": "63777",
 "name": "Deal Cards",
 "domain": "dealcards.com.br"
+},
+{
+"id": "255669",
+"name": "Deck Lab Game Store",
+"domain": "decklabgamestore.com.br"
 },
 {
 "id": "145653",
@@ -364,6 +379,16 @@
 "domain": "flowstore.com.br"
 },
 {
+"id": "303167",
+"name": "Flow Geek Store",
+"domain": "flowgeekstore.com"
+},
+{
+"id": "198204",
+"name": "FLR MAGIC STORE",
+"domain": "flrmagicstore.com.br"
+},
+{
 "id": "638558",
 "name": "Fog Cards",
 "domain": "fogcards.com.br"
@@ -394,6 +419,11 @@
 "domain": "freitastcg.com.br"
 },
 {
+"id": "130359",
+"name": "GA_JO_SO Coleções e Hobbies",
+"domain": "gajosocollectors.com.br"
+},
+{
 "id": "39454",
 "name": "Gaia Games Store",
 "domain": "gaiagamestore.com.br"
@@ -419,6 +449,11 @@
 "domain": "gastmtg.com.br"
 },
 {
+"id": "108790",
+"name": "Geek Place Araras",
+"domain": "geekplaceararas.com.br"
+},
+{
 "id": "228838",
 "name": "Geek Side Shop",
 "domain": "geeksideshop.com.br"
@@ -439,6 +474,11 @@
 "domain": "gladiatorstcg.com.br"
 },
 {
+"id": "833721",
+"name": "Glimmer TCG",
+"domain": "glimmertcg.com.br"
+},
+{
 "id": "108628",
 "name": "Goblin Factory",
 "domain": "goblinfactory.com.br"
@@ -452,6 +492,19 @@
 "id": "328730",
 "name": "Gods Geek",
 "domain": "godsgeek.com.br"
+},
+{
+"id": "158252",
+"name": "Gold House",
+"domain": "goldhousemtg.com.br"
+},
+{
+"id": "860634",
+"name": "Golden Coin"
+},
+{
+"id": "806293",
+"name": "GOLDEN PULL"
 },
 {
 "id": "640217",
@@ -523,6 +576,10 @@
 "domain": "jackpotjogos.com.br"
 },
 {
+"id": "557951",
+"name": "JADYMON CARDS"
+},
+{
 "id": "50596",
 "name": "Jogos da Massa",
 "domain": "jogosdamassa.com.br"
@@ -566,6 +623,11 @@
 "id": "43286",
 "name": "Legends Game Store",
 "domain": "legendsgs.com.br"
+},
+{
+"id": "549316",
+"name": "LGF Cardshop",
+"domain": "lgfcards.com.br"
 },
 {
 "id": "590634",
@@ -652,6 +714,11 @@
 "domain": "magicinvest.com.br"
 },
 {
+"id": "294784",
+"name": "Magic Raiz",
+"domain": "magicraiz.com.br"
+},
+{
 "id": "52667",
 "name": "Magic Store Brasil",
 "domain": "magicstorebrasil.com.br"
@@ -673,12 +740,23 @@
 },
 {
 "id": "867129",
-"name": "Mana Uai Cardshop"
+"name": "Mana Uai Cardshop",
+"domain": "manauai.com.br"
 },
 {
 "id": "62691",
 "name": "ManaFix.net",
 "domain": "manafix.net"
+},
+{
+"id": "48121",
+"name": "ManaVai BR",
+"domain": "manavaibr.com.br"
+},
+{
+"id": "309851",
+"name": "Many Collections",
+"domain": "manycollections.com.br"
 },
 {
 "id": "542362",
@@ -721,9 +799,18 @@
 "domain": "mercadiastore.com.br"
 },
 {
+"id": "64102",
+"name": "Meruru",
+"domain": "meruru.com.br"
+},
+{
 "id": "148552",
 "name": "Mesa 1 TCG",
 "domain": "mesa1tcg.com.br"
+},
+{
+"id": "653996",
+"name": "META GAME STORE"
 },
 {
 "id": "83187",
@@ -861,6 +948,11 @@
 "domain": "nexusgame.com.br"
 },
 {
+"id": "736690",
+"name": "Nord Geek Store",
+"domain": "nordgeekstore.com.br"
+},
+{
 "id": "432065",
 "name": "O Grimório Ludoteca",
 "domain": "ogrimorio.com.br"
@@ -881,6 +973,11 @@
 "domain": "oakshield.com.br"
 },
 {
+"id": "26764",
+"name": "Ojuara Cardshop",
+"domain": "ojuaracardshop.com.br"
+},
+{
 "id": "227786",
 "name": "Olho de Leão",
 "domain": "olhodeleaocard.com.br"
@@ -897,7 +994,8 @@
 },
 {
 "id": "50408",
-"name": "Orc's Cave Geekstore"
+"name": "Orc's Cave Geekstore",
+"domain": "orcscavecards.com.br"
 },
 {
 "id": "25716",
@@ -968,6 +1066,10 @@
 "id": "56545",
 "name": "Pokeloja Pomerode",
 "domain": "pokelojapomerode.com.br"
+},
+{
+"id": "857648",
+"name": "Portal Planar Card Shop"
 },
 {
 "id": "41722",
@@ -1080,6 +1182,11 @@
 "domain": "supernovahobbystore.com.br"
 },
 {
+"id": "519944",
+"name": "SupraCard",
+"domain": "supracards.net"
+},
+{
 "id": "41369",
 "name": "Taberna Geek",
 "domain": "tabernageek.com.br"
@@ -1093,6 +1200,11 @@
 "id": "228884",
 "name": "Taverna De Avalon Geek Store",
 "domain": "tavernadeavalon.com.br"
+},
+{
+"id": "689263",
+"name": "Taverna do Colecionador",
+"domain": "tavernadocolecionador.com.br"
 },
 {
 "id": "142722",
@@ -1118,6 +1230,16 @@
 "id": "22773",
 "name": "Tenda da Liliana",
 "domain": "tendadaliliana.com.br"
+},
+{
+"id": "553317",
+"name": "TESKO CARDS GAMES ",
+"domain": "teskocardsgames.com.br"
+},
+{
+"id": "96564",
+"name": "The Infinite Nexus",
+"domain": "theinfinitenexus.com.br"
 },
 {
 "id": "563139",
@@ -1170,6 +1292,11 @@
 "domain": "tutubahia.com.br"
 },
 {
+"id": "657636",
+"name": "Tuzzy Cards",
+"domain": "ligatuzzycards.com"
+},
+{
 "id": "312903",
 "name": "UGCardShop",
 "domain": "ugcardshop.com.br"
@@ -1203,6 +1330,11 @@
 "id": "198625",
 "name": "Void Universe",
 "domain": "voiduniverse.com.br"
+},
+{
+"id": "887485",
+"name": "Wardhaven Ltda",
+"domain": "wardhaven.com.br"
 },
 {
 "id": "14032",

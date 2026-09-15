@@ -370,79 +370,66 @@ function buildWrapper() {
 
 /**
  * Scryfall's own .header-control-row is `width: 100%; max-width: 1000px;
- * margin: 0 auto; overflow: hidden` -- a fluid-until-a-cap container, which
- * is why it renders as a compact, centered bar rather than stretching edge
- * to edge. Appending this extension's controls pushes the row's content
- * past that 1000px cap, and since the overflow is hidden rather than
- * wrapped, whatever lands last (this extension's own buttons) gets silently
- * clipped. Confirmed live: scrollWidth exceeds clientWidth by ~29px with
- * both of this extension's control groups present, even at a very wide
- * window.
+ * margin: 0 auto; overflow: hidden` -- a fluid-but-capped container, so by
+ * default it renders as a compact, centered ~1000px bar rather than
+ * spanning the header's own full width. This extension wants the opposite
+ * now: the row filling however much width `.header` actually has (its own
+ * padding already gives good left/right breathing room -- confirmed live as
+ * `padding: 0px 42.5469px`, so nothing extra needs adding here), with the
+ * search field -- and *only* the search field -- absorbing the extra space,
+ * everything else (logo, nav links, this extension's own button/pip groups)
+ * keeping its natural size.
  *
- * A `<style>` override doesn't work here -- confirmed live that a `<style>`
- * element inserted into <head> on this page ends up with `sheet: null`,
- * never actually applied (most likely this page's CSP allows inline
- * `style="..."` attributes but blocks injected stylesheets/style elements).
- * Setting the properties directly on the row's own style, the same way
- * every other control this extension adds to a page is styled, is what
- * actually takes effect.
+ * That split happens for free once the native 1000px cap is lifted:
+ * confirmed live that `form.header-search` and its own
+ * `#header-search-field` already carry `flex: 1 1 0%` from Scryfall's own
+ * stylesheet -- the field's old ~266px rendered width was purely the row's
+ * capped width leaving it nothing to grow into, not a fixed width set on
+ * the field itself. Every other row child has flex-grow 0 (the logo is
+ * `flex: 0 0 34px`, `.header-links` is `flex: 0 1 auto`, this extension's
+ * own wrapper divs only ever set flex-shrink), so none of them stretch.
  *
- * Raising max-width to `none` outright (an earlier version of this fix)
- * removed the clipping but also removed the cap entirely -- since `width:
- * 100%` is still in effect, the row then stretched to `.header`'s own width
- * (nearly the full page), losing the compact/centered look the native
- * 1000px cap gave it. The fix instead measures how wide the row's content
- * actually needs to be and locks max-width to THAT, restoring the same
- * "fluid until a cap" behavior with a slightly taller cap. `row.scrollWidth`
- * alone isn't a reliable measurement, though -- confirmed live it tracks
- * `.header`'s own width (1810px at a 1920px window, 1354px at 1440px)
- * rather than the content's real need, because `width: 100%` is still
- * active while measuring; forcing `width: max-content` during the
- * measurement only (removed again right after) reads the content's actual
- * size instead, confirmed live as a stable ~1049px regardless of window
- * width.
- */
-function measureRowNaturalWidth(row) {
-  row.style.setProperty("max-width", "none", "important");
-  row.style.setProperty("width", "max-content", "important");
-  const naturalWidth = row.scrollWidth;
-  row.style.removeProperty("width");
-  return naturalWidth;
-}
-
-/**
- * Re-locks max-width to the content's current real need (plus a small 8px
- * allowance for rounding) instead of a number computed once and hardcoded --
- * the pending-prices button's own text changes width on its own (missing-
- * card count, a live "Buscando... 0:05" elapsed timer while a backfill
- * runs), so a fixed max-width would drift stale the moment that text
- * changes length.
- *
- * flex-wrap: wrap is a second, independent safety net: at a narrow enough
- * window, `.header` itself may be narrower than the row's own content need,
- * in which case `width: 100%` (not max-width) ends up governing the row's
- * actual size and squeezes it below that need -- confirmed live at 1024px.
- * With `flex-wrap: nowrap` (the site's default) the excess has nowhere to
- * go but sideways, past the row's own box and into the page itself
- * (confirmed live: gives the whole page a horizontal scrollbar it never had
- * before). `flex-wrap: wrap` lets that excess drop to a second line inside
- * the same row instead. Harmless at normal widths -- confirmed live at
- * 1920/1440px that everything still renders on one line, since there's room
- * for it there.
+ * A `<style>` override doesn't work here -- confirmed live (still true)
+ * that a `<style>` element inserted into <head> on this page ends up with
+ * `sheet: null`, never actually applied (most likely this page's CSP allows
+ * inline `style="..."` attributes but blocks injected stylesheets/style
+ * elements). Setting the properties directly on the row's own style, the
+ * same way every other control this extension adds to a page is styled, is
+ * what actually takes effect.
  */
 function updateHeaderRowMaxWidth(row) {
-  const naturalWidth = measureRowNaturalWidth(row);
-  row.style.setProperty("max-width", `${naturalWidth + 8}px`, "important");
+  // "none" rather than a measured number (an earlier version of this
+  // function shrink-wrapped the row to its content's natural width instead
+  // of stretching it -- see git history if that behavior is ever needed
+  // again). Nothing here depends on the current content's size any more, so
+  // -- unlike the old shrink-wrap version -- this never needs
+  // re-measuring after content changes (a button's text getting longer, a
+  // pip group being added): flexbox alone keeps redistributing the row's
+  // already-fixed available width on every reflow.
+  row.style.setProperty("max-width", "none", "important");
   row.style.setProperty("overflow", "visible", "important");
+  // Safety net for a header narrower than this row's own fixed-size content
+  // (logo + nav links + this extension's button/pip groups, none of which
+  // shrink) -- lets the excess drop to a second line instead of overflowing
+  // the row's own box sideways, which -- confirmed live, still true under
+  // this new stretch-to-fill behavior -- would otherwise give the whole
+  // page a horizontal scrollbar it never had before (`flex-wrap: nowrap` is
+  // the site's own default). Re-confirmed live at a re-tested narrow
+  // (1024px) width with the wider row and the new color pips both present.
   row.style.setProperty("flex-wrap", "wrap", "important");
   row.style.setProperty("row-gap", "6px", "important");
 }
 
 /**
- * Keeps updateHeaderRowMaxWidth's number current as the row's own content
- * changes size after the initial injection -- watching text/child changes
- * only (not attributes), so this doesn't re-trigger itself off its own
- * max-width/overflow/flex-wrap writes on the row, or off applySamvButtonStyle
+ * Re-applies updateHeaderRowMaxWidth whenever the row's own children change
+ * after the initial injection (e.g. the color-pips group or the pending-
+ * prices button mounting later than this file's own controls). Under the
+ * current stretch-to-fill behavior this is no longer about keeping a
+ * measured number current -- there isn't one any more -- it's just a cheap,
+ * idempotent safety net in case anything else ever touches the row's own
+ * inline style after the first pass. Watches text/child changes only (not
+ * attributes), so this doesn't re-trigger itself off its own max-width/
+ * overflow/flex-wrap writes on the row, or off applySamvButtonStyle
  * repainting a button's border-color on hover.
  */
 function watchHeaderRowWidth(row) {

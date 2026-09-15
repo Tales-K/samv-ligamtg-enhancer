@@ -1,5 +1,5 @@
 /**
- * EDHREC — adds a "Ver no LigaMagic" link to a commander page's card panel,
+ * EDHREC — adds a "Ver no LigaMagic" button to a commander page's card panel,
  * as its own line above "Rank #..." / "N decks", opening that card's
  * LigaMagic page in a new tab.
  *
@@ -11,9 +11,9 @@
  * The rank/deck-count area below it is a shrink-to-fit flex column instead,
  * so an extra line just adds itself without squeezing anything.
  *
- * Depends on: overlay-utils.js (log factory, logNotShown, SAMV_PURPLE,
- * SAMV_PURPLE_HOVER, LIGAMAGIC_BASE, observeAndRerun, hasAddedNodeMatching)
- * — shared with the Archidekt/Moxfield/Scryfall overlays. Does NOT depend on
+ * Depends on: overlay-utils.js (log factory, logNotShown, LIGAMAGIC_BASE,
+ * applySamvButtonStyle, observeAndRerun, hasAddedNodeMatching) — shared with
+ * the Archidekt/Moxfield/Scryfall overlays. Does NOT depend on
  * content-utils.js (different host, separate injection).
  */
 
@@ -35,23 +35,40 @@ function buildLigaMagicLine(url) {
   wrap.id = EDHREC_LIGAMAGIC_BTN_ID;
   Object.assign(wrap.style, {
     display: "flex",
-    alignItems: "center",
     justifyContent: "center",
-    gap: "4px",
+    marginBottom: "6px",
   });
 
+  // Geometry matches the "Carregar filtro padrão" button injected on
+  // LigaMagic's own "Compra por Lista" page (see injectLoadDefaultsButton in
+  // lista-defaults.js) -- measured live via getComputedStyle on that
+  // button's rendered `.botao` element (height 36px, padding 8px 15px,
+  // border-radius 3px, font 700 12px arial/helvetica/sans-serif) since
+  // EDHREC (React, CSS Modules) has no equivalent native class to borrow
+  // for the shape, unlike overlay-moxfield.js's link, which reuses
+  // Moxfield's own button class. Colors come from applySamvButtonStyle
+  // (overlay-utils.js), the same helper every other injected button here
+  // uses, including its hover swap to SAMV_PURPLE_HOVER.
   const link = document.createElement("a");
   link.target = "_blank";
   link.rel = "noopener noreferrer";
   link.href = url;
   link.textContent = "Ver no LigaMagic";
   Object.assign(link.style, {
-    fontSize: "16px",
+    display: "inline-block",
+    boxSizing: "border-box",
+    height: "36px",
+    lineHeight: "18px",
+    padding: "8px 15px",
+    borderRadius: "3px",
+    border: "1px solid transparent",
+    fontSize: "12px",
+    fontWeight: "700",
+    fontFamily: "arial, helvetica, sans-serif",
     textDecoration: "none",
-    color: SAMV_PURPLE,
+    whiteSpace: "nowrap",
   });
-  link.addEventListener("mouseenter", () => (link.style.color = SAMV_PURPLE_HOVER));
-  link.addEventListener("mouseleave", () => (link.style.color = SAMV_PURPLE));
+  applySamvButtonStyle(link);
 
   wrap.appendChild(link);
   return wrap;
