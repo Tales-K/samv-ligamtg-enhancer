@@ -149,7 +149,7 @@ document.addEventListener("DOMContentLoaded", () => {
     "enableCustomStoreSearch",
     "addCopyListaButton",
     "addAnaliseEconomia",
-    "addSuperPesquisa",
+    "addMinPriceColumn",
     "addFreteCaroAlert",
     "addCarrinhoCopyButton",
     "showDebugLogs",

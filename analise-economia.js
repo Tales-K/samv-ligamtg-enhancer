@@ -37,7 +37,7 @@
  *   2. UI glue at the bottom that wires the solver to a button + modal.
  *
  * Depends on: content-utils.js (log, sendMessage, getSettings,
- * showCopiedFeedback, applySamvStyle), lista-defaults.js (isListaCardsPage)
+ * applySamvStyle), lista-defaults.js (isListaCardsPage)
  */
 
 // ── Solver ───────────────────────────────────────────────────────────────────
@@ -254,78 +254,55 @@ function preencherCarta(consolidado, chaveBusca, lojasAbertas, qtd) {
  */
 function analisarFechamentosCandidato(consolidado, card) {
   const lojasCandidato = [...card.porLoja.keys()];
-  const lojasCandidatoSet = new Set(lojasCandidato);
-  const lojaPorNome = new Map(consolidado.lojas.map((l) => [l.nome, l]));
-  const lojasParaRealocar = new Set(
-    consolidado.lojas.map((l) => l.nome).filter((nome) => !lojasCandidatoSet.has(nome)),
-  );
+  if (lojasCandidato.length === 0) return { economia: 0, lojasFechando: [] };
 
-  const lojasFechando = [];
+  // Which of the candidate's own stores close is one decision, not several:
+  // a store that ends up staying open is a legitimate destination for
+  // another one's cards, and evaluating each store against a fixed set that
+  // excluded ALL of them (which is what this used to do) understates every
+  // relocation. Enumerated rather than approximated -- a card is bought at
+  // one or two stores in practice, so this is a handful of combinations.
+  const melhor = melhorFechamento(consolidado, {
+    candidatas: lojasCandidato,
+    ignorarChave: card.chaveBusca,
+  });
+  if (!melhor) return { economia: 0, lojasFechando: [] };
 
-  for (const loja of lojasCandidato) {
-    const outras = [...(consolidado.cartasPorLoja.get(loja) ?? new Map())].filter(
-      ([chave]) => chave !== card.chaveBusca,
-    );
-    const lojaInfo = lojaPorNome.get(loja);
-    const { qtd: qtdCandidato, valor: valorCandidato, bloco, linha } = card.porLoja.get(loja);
-
-    if (outras.length === 0) {
-      lojasFechando.push({
-        nome: loja,
-        frete: lojaInfo.frete,
-        valorCandidato,
-        qtdCandidato,
-        bloco,
-        linha,
-        realocacoes: [],
-      });
-      continue;
-    }
-
-    let somaDeltas = 0;
-    const realocacoes = [];
-    let inviavel = false;
-    for (const [chaveOutra, info] of outras) {
-      const preenchido = preencherCarta(consolidado, chaveOutra, lojasParaRealocar, info.qtd);
-      if (!preenchido) {
-        inviavel = true;
-        break;
-      }
-      const delta = preenchido.custo - info.valor;
-      somaDeltas += delta;
-      realocacoes.push({
-        nome: info.nome,
-        qtd: info.qtd,
-        precoAntes: info.valor,
-        precoDepois: preenchido.custo,
-        delta,
-        bloco: info.bloco,
-        linha: info.linha,
-        destino: [...preenchido.porLoja], // [loja, { qtd, custo, bloco, linha }][] -- can span more than one store
-      });
-    }
-    if (inviavel) continue; // something at this store is exclusive to it -- can't close, whatever else is true
-    if (lojaInfo.frete - somaDeltas <= 0) continue; // relocating everything else costs more than the shipping saved
-
-    lojasFechando.push({
-      nome: loja,
-      frete: lojaInfo.frete,
-      valorCandidato,
-      qtdCandidato,
-      bloco,
-      linha,
-      realocacoes,
-      somaDeltas,
-    });
+  // The candidate's own price only counts as saved for the stores that
+  // actually close -- whatever portion of it is bought at a store that
+  // stays open keeps being bought exactly as today.
+  const realocacoesPorOrigem = new Map();
+  for (const realoc of melhor.realocacoes) {
+    if (!realocacoesPorOrigem.has(realoc.origem)) realocacoesPorOrigem.set(realoc.origem, []);
+    realocacoesPorOrigem.get(realoc.origem).push(realoc);
   }
 
-  const economia = lojasFechando.reduce((soma, l) => soma + l.frete - (l.somaDeltas ?? 0), 0);
-  return { economia, lojasFechando };
+  const lojasFechando = melhor.lojas.map((loja) => {
+    const { qtd: qtdCandidato, valor: valorCandidato, linha } = card.porLoja.get(loja.nome);
+    return {
+      nome: loja.nome,
+      frete: loja.frete,
+      valorCandidato,
+      qtdCandidato,
+      bloco: loja.bloco,
+      linha,
+      realocacoes: [...(realocacoesPorOrigem.get(loja.nome) ?? [])],
+    };
+  });
+  // A relocation whose demand was pooled across more than one closing store
+  // belongs to the plan as a whole, not to any single store's row -- park it
+  // on the first one so construirPlanoAplicacao still emits it exactly once.
+  for (const [origem, lista] of realocacoesPorOrigem) {
+    if (!origem.includes(" / ")) continue;
+    lojasFechando[0].realocacoes.push(...lista);
+  }
+
+  return { economia: melhor.economia, lojasFechando };
 }
 
 /**
  * Turns a list of realocacoes (as produced by analisarFechamentosCandidato
- * or analisarReorganizacaoLoja) into the DOM writes that move each card to
+ * or avaliarFechamentoConjunto) into the DOM writes that move each card to
  * its destination(s): rows to add `qtd` units to, on top of whatever they
  * already have (already net of that store's own existing real quantity, see
  * preencherCarta, so this is always the correct amount to add, never to
@@ -366,76 +343,177 @@ function construirPlanoAplicacao(analise) {
 }
 
 // ── Reorganização (close a store without dropping any card) ────────────────────
-/**
- * For one store that's really selling at least one card in the current
- * cart, checks whether EVERY card it sells could instead be bought from
- * some other store already in this same result (even at a higher price) --
- * without dropping any card from the purchase at all. If the shipping saved
- * by no longer needing this store outweighs however much more those cards
- * cost elsewhere, closing it via reorganization is a real saving with
- * nothing removed from the list -- unlike analisarFechamentosCandidato
- * above, which only ever considers closing a store as a side effect of
- * dropping ONE expensive/exclusive candidate card. Here the store itself is
- * the subject: every one of its own real cards is treated as needing to
- * move at once, whether or not any single one of them would individually
- * have been worth analyzing as a candidate.
- *
- * Still deliberately LOCAL, for the same reason as the rest of this file:
- * only stores already present in this result are considered as a
- * destination, and only this one store is considered for closing per call
- * -- no whole-cart re-solve.
- *
- * Returns null if this store can't be fully vacated (something it sells is
- * exclusive to it, so relocating it fails) or if doing so wouldn't actually
- * save money net of the relocation cost.
- */
-function analisarReorganizacaoLoja(consolidado, loja) {
-  const cartasLoja = consolidado.cartasPorLoja.get(loja.nome) ?? new Map();
-  if (cartasLoja.size === 0) return null; // nothing really bought here today
+/** The bloco index of a store, taken from any of its real purchases -- they all share it. */
+function blocoDaLoja(consolidado, nomeLoja) {
+  const cartas = consolidado.cartasPorLoja.get(nomeLoja);
+  return cartas && cartas.size > 0 ? [...cartas.values()][0].bloco : null;
+}
 
-  // Every entry in cartasLoja is a real purchase at this same store, so they
-  // all share this store's own bloco index -- any one of them locates it.
-  const bloco = [...cartasLoja.values()][0].bloco;
-  const lojasAbertas = new Set(consolidado.lojas.map((l) => l.nome).filter((nome) => nome !== loja.nome));
+/**
+ * Net saving of closing exactly the stores in `fechando`, without dropping
+ * any card from the purchase: the shipping they stop charging, minus
+ * however much more it costs to buy everything they were really selling
+ * from the stores that stay open.
+ *
+ * Demand is pooled per card BEFORE refilling: a card really bought at two
+ * of the closing stores becomes one refill of the combined quantity, never
+ * two independent ones. preencherCarta only knows to discount the real
+ * purchases still standing at the OPEN stores, so two separate calls would
+ * both see the same free stock and could spend it twice.
+ *
+ * Still deliberately local: only stores already present in this result are
+ * ever considered as a destination. Returns null when something the closing
+ * stores sell can't be bought anywhere that stays open.
+ */
+function avaliarFechamentoConjunto(consolidado, fechando, opcoes = {}) {
+  const { ignorarChave = null } = opcoes;
+  if (fechando.length === 0) return null;
+
+  const fechandoSet = new Set(fechando);
+  const lojasAbertas = new Set(consolidado.lojas.map((l) => l.nome).filter((nome) => !fechandoSet.has(nome)));
+
+  const demanda = new Map();
+  for (const nomeLoja of fechando) {
+    for (const [chave, info] of consolidado.cartasPorLoja.get(nomeLoja) ?? new Map()) {
+      if (chave === ignorarChave) continue;
+      const atual = demanda.get(chave) ?? { nome: info.nome, qtd: 0, valor: 0, origens: [] };
+      atual.qtd += info.qtd;
+      atual.valor += info.valor;
+      atual.origens.push(nomeLoja);
+      demanda.set(chave, atual);
+    }
+  }
 
   let somaDeltas = 0;
   const realocacoes = [];
-  for (const [chave, info] of cartasLoja) {
+  for (const [chave, info] of demanda) {
     const preenchido = preencherCarta(consolidado, chave, lojasAbertas, info.qtd);
-    if (!preenchido) return null; // exclusive to this store -- can't vacate it
+    if (!preenchido) return null; // exclusive to a store being closed -- can't vacate it
     const delta = preenchido.custo - info.valor;
     somaDeltas += delta;
     realocacoes.push({
       nome: info.nome,
+      origem: info.origens.join(" / "),
       qtd: info.qtd,
       precoAntes: info.valor,
       precoDepois: preenchido.custo,
       delta,
-      bloco: info.bloco,
-      linha: info.linha,
       destino: [...preenchido.porLoja], // can span more than one destination store, see preencherCarta
     });
   }
 
-  const economia = loja.frete - somaDeltas;
-  if (economia <= ANALISE_ECONOMIA_MINIMA) return null;
+  const lojaPorNome = new Map(consolidado.lojas.map((l) => [l.nome, l]));
+  const lojas = fechando.map((nome) => ({
+    nome,
+    frete: lojaPorNome.get(nome)?.frete ?? 0,
+    bloco: blocoDaLoja(consolidado, nome),
+  }));
+  if (lojas.some((l) => l.bloco == null)) return null; // a store with nothing really bought has nothing to close
 
-  return { nome: loja.nome, frete: loja.frete, bloco, realocacoes, somaDeltas, economia };
+  const frete = lojas.reduce((soma, l) => soma + l.frete, 0);
+  return {
+    lojas,
+    nome: lojas.map((l) => l.nome).join(" + "),
+    frete,
+    somaDeltas,
+    realocacoes,
+    economia: frete - somaDeltas,
+  };
+}
+
+/**
+ * Above this many stores actually selling something, the exhaustive pass
+ * below falls back to a greedy one. 2^16 = 65536 combinations is still
+ * milliseconds against a handful of cards; a real result has 5-8 stores, so
+ * the fallback is a safety net, not the normal path.
+ */
+const ANALISE_MAX_LOJAS_EXAUSTIVO = 16;
+
+/**
+ * The single most profitable set of stores to close. Closing stores is the
+ * ONLY way a reorganização saves anything (every card keeps being bought,
+ * just somewhere else), so the whole decision is "which subset of the
+ * stores currently selling something stops being used" -- and with a
+ * handful of stores that subset can simply be enumerated instead of
+ * approximated.
+ *
+ * This matters because closing stores is not separable: vacating A can make
+ * B cheaper to vacate (A's cards were competing for the same stock B's
+ * would move into) or more expensive (A was where B's cards would have
+ * gone). Picking the single best store, committing to it, and repeating --
+ * which is what this used to do -- lands on a worse answer whenever those
+ * interactions matter. Measured against real discovery data (2026-09-16),
+ * the greedy chain missed the optimum in ~7% of sampled carts, by up to
+ * R$ 21,75.
+ *
+ * `ignorarChave` excludes one card from the refill, for the "remoção" half
+ * of the analysis, where that card is being dropped rather than moved.
+ */
+function melhorFechamento(consolidado, opcoes = {}) {
+  const candidatas = opcoes.candidatas ?? [...consolidado.cartasPorLoja.keys()];
+  if (candidatas.length === 0) return null;
+
+  let melhor = null;
+  const considerar = (fechando) => {
+    const avaliacao = avaliarFechamentoConjunto(consolidado, fechando, opcoes);
+    if (!avaliacao || avaliacao.economia <= ANALISE_ECONOMIA_MINIMA) return null;
+    if (!melhor || avaliacao.economia > melhor.economia) melhor = avaliacao;
+    return avaliacao;
+  };
+
+  if (candidatas.length <= ANALISE_MAX_LOJAS_EXAUSTIVO) {
+    for (let mascara = 1; mascara < 1 << candidatas.length; mascara++) {
+      considerar(candidatas.filter((_, i) => mascara & (1 << i)));
+    }
+    return melhor;
+  }
+
+  // Fallback for an implausibly wide result: grow the closing set one store
+  // at a time, keeping whichever addition helps most.
+  const fechando = [];
+  const restantes = [...candidatas];
+  while (restantes.length > 0) {
+    let passo = null;
+    for (const nome of restantes) {
+      const avaliacao = avaliarFechamentoConjunto(consolidado, [...fechando, nome], opcoes);
+      if (!avaliacao) continue;
+      if (!passo || avaliacao.economia > passo.avaliacao.economia) passo = { nome, avaliacao };
+    }
+    if (!passo || (melhor && passo.avaliacao.economia <= melhor.economia)) break;
+    fechando.push(passo.nome);
+    restantes.splice(restantes.indexOf(passo.nome), 1);
+    if (passo.avaliacao.economia > ANALISE_ECONOMIA_MINIMA) melhor = passo.avaliacao;
+  }
+  return melhor;
 }
 
 /** Structured, DOM-executable version of a reorganização's realocacoes -- see construirPlanoAplicacao. */
 function construirPlanoAplicacaoReorganizacao(reorg) {
-  return { incrementar: planoDeRealocacoes(reorg.realocacoes), fecharLojas: [reorg.bloco] };
+  return {
+    incrementar: planoDeRealocacoes(reorg.realocacoes),
+    fecharLojas: reorg.lojas.map((l) => l.bloco),
+  };
 }
 
-/** Every store worth reorganizing away, most savings first. */
+/**
+ * What the "Economia por reorganização" list shows: one entry per store
+ * that's worth vacating on its own, plus -- when the real optimum needs
+ * more than one store to close at once and beats every single-store move --
+ * that combined move at the top, since no per-store row would ever surface
+ * it.
+ */
 function selecionarReorganizacoes(consolidado) {
   const resultados = [];
   for (const loja of consolidado.lojas) {
-    const analise = analisarReorganizacaoLoja(consolidado, loja);
-    if (analise) resultados.push(analise);
+    const analise = avaliarFechamentoConjunto(consolidado, [loja.nome]);
+    if (analise && analise.economia > ANALISE_ECONOMIA_MINIMA) resultados.push(analise);
   }
   resultados.sort((a, b) => b.economia - a.economia);
+
+  const melhor = melhorFechamento(consolidado);
+  if (melhor && melhor.lojas.length > 1 && (resultados.length === 0 || melhor.economia > resultados[0].economia)) {
+    resultados.unshift(melhor);
+  }
   return resultados;
 }
 
@@ -450,73 +528,25 @@ function calcularTotalConsolidado(consolidado) {
 }
 
 /**
- * Produces a new resultado-like object with one reorganização already
- * applied in-memory: the closed store's own block is dropped entirely (same
- * effect as its real "remover todos os itens desta loja" control), and each
- * relocated card's destination row(s) get their quantidade bumped by
- * however much moved there -- mirrors exactly what aplicarPlanoNaTela (in
- * the UI half of this file) does for real, but against a plain object
- * instead of the DOM, so a chain of reorganizações can be explored and
- * measured without ever touching a live page. Used by
- * maximizarReorganizacoes below.
- */
-function simularAplicacaoReorganizacao(resultado, reorg) {
-  const novo = { ...resultado };
-  for (const realoc of reorg.realocacoes) {
-    for (const [, { qtd, bloco, linha }] of realoc.destino) {
-      const blocoAtual = novo[bloco];
-      if (!blocoAtual) continue;
-      const cartas = [...blocoAtual.cartas];
-      const carta = cartas[linha];
-      if (!carta) continue;
-      cartas[linha] = { ...carta, quantidade: (carta.quantidade ?? 0) + qtd };
-      novo[bloco] = { ...blocoAtual, cartas };
-    }
-  }
-  delete novo[reorg.bloco];
-  return novo;
-}
-
-/**
- * Repeatedly finds and applies (only in-memory) the single best
- * reorganização still available, since applying one can change what else is
- * still viable or how much it's worth -- a store just vacated becomes
- * available as a relocation destination for the next one, one that just
- * filled up may no longer have the free stock a still-pending suggestion
- * was counting on. This is the same reasoning aplicarPlanoEconomia already
- * follows for a single real application (recomputing the whole analysis
- * fresh afterward) -- this just runs that same idea in a loop, purely in
- * memory, to work out the actual maximum achievable total and the order
- * that reaches it, instead of naively summing every currently-listed
- * suggestion's own economia (which can double-count: two suggestions can
+ * The maximum a reorganização can actually save on this result: the economia
+ * of the single best set of stores to close (see melhorFechamento), never
+ * the sum of the per-store suggestions listed above -- two of those can
  * depend on the same relocation capacity, or on each other's store staying
- * open).
+ * open, so summing them double-counts.
  *
- * Returns { economiaTotal, passos, resultadoFinal } -- passos is
- * [{ nome, frete, economia }] in application order, for display. A real DOM
- * application should still re-derive its own plano from a fresh, real
- * analysis at each step rather than trusting these simulated ones, since
- * they're computed against progressively more hypothetical states the
- * longer the chain runs (see aplicarTodasReorganizacoes in the UI half of
- * this file, and its local counterpart in super-pesquisa.js).
+ * Returns { economiaTotal, lojas } -- lojas being the stores that close to
+ * reach it, for display. A real DOM application should still re-derive its
+ * plano from a fresh analysis after each step rather than trusting this one
+ * (see aplicarTodasReorganizacoes in the UI half of this file, and its
+ * counterpart in super-pesquisa.js), since the live page recalculates frete
+ * as things move.
  */
 function maximizarReorganizacoes(resultadoInicial) {
-  let resultadoAtual = resultadoInicial;
-  let economiaTotal = 0;
-  const passos = [];
-
-  while (true) {
-    const consolidado = consolidarResultado(resultadoAtual);
-    if (consolidado.lojasSemFrete.length > 0) break;
-    const reorganizacoes = selecionarReorganizacoes(consolidado);
-    if (reorganizacoes.length === 0) break;
-    const melhor = reorganizacoes[0];
-    economiaTotal += melhor.economia;
-    passos.push({ nome: melhor.nome, frete: melhor.frete, economia: melhor.economia });
-    resultadoAtual = simularAplicacaoReorganizacao(resultadoAtual, melhor);
-  }
-
-  return { economiaTotal, passos, resultadoFinal: resultadoAtual };
+  const consolidado = consolidarResultado(resultadoInicial);
+  if (consolidado.lojasSemFrete.length > 0) return { economiaTotal: 0, lojas: [] };
+  const melhor = melhorFechamento(consolidado);
+  if (!melhor) return { economiaTotal: 0, lojas: [] };
+  return { economiaTotal: melhor.economia, lojas: melhor.lojas.map((l) => l.nome) };
 }
 
 /** Human-readable step-by-step for a reorganization: nothing is dropped, only moved. */
@@ -530,14 +560,19 @@ function construirInstrucoesReorganizacao(reorg, totalAtual) {
       const deltaAqui = custoAqui - qtdAqui * precoUnitarioAntes;
       const sinal = deltaAqui >= 0 ? "aumentando" : "reduzindo";
       linhas.push(
-        `Retire ${qtdAqui}x "${realoc.nome}" da loja "${reorg.nome}" e compre ${qtdAqui}x em ${nomeLoja}, ` +
+        `Retire ${qtdAqui}x "${realoc.nome}" da loja "${realoc.origem}" e compre ${qtdAqui}x em ${nomeLoja}, ` +
           `${sinal} o custo em R$ ${formatarMoeda(Math.abs(deltaAqui))}.`,
       );
     }
   }
 
+  const quais = reorg.lojas.map((l) => `"${l.nome}"`).join(" e ");
   linhas.push(
-    `A loja "${reorg.nome}" sai da compra sem remover nenhuma carta — economia de R$ ${formatarMoeda(reorg.frete)} em frete.`,
+    reorg.lojas.length > 1
+      ? `As lojas ${quais} saem da compra juntas, sem remover nenhuma carta — economia de ` +
+          `R$ ${formatarMoeda(reorg.frete)} em frete. Fechar todas de uma vez rende mais do que ` +
+          `fechar qualquer uma delas sozinha.`
+      : `A loja ${quais} sai da compra sem remover nenhuma carta — economia de R$ ${formatarMoeda(reorg.frete)} em frete.`,
   );
 
   const totalDepois = totalAtual - reorg.economia;
@@ -664,7 +699,7 @@ const ANALISE_ECONOMIA_MINIMA = 0.01;
  *   - resultados: "Economia de frete por remoção" -- drop an expensive/
  *     exclusive card, see analisarFechamentosCandidato.
  *   - reorganizacoes: "Economia por reorganização" -- keep buying every
- *     card, just from a different store, see analisarReorganizacaoLoja.
+ *     card, just from a different store, see avaliarFechamentoConjunto.
  *   - alertasFreteCaro: stores whose shipping fee alone is above
  *     `freteCaroLimiar`, regardless of whether either analysis above found
  *     anything to do about it.
@@ -752,11 +787,11 @@ async function analisarEconomiaAsync(resultado, freteCaroLimiar = FRETE_CARO_LIM
 
 // Bumped whenever the report's shape or the meaning of `economia` changes,
 // so a previously-cached analysis (computed under different semantics) is
-// never mistaken for a fresh one and shown as-is. Bumped to 9 for the new
-// `economiaMaximaReorganizacao` field (the actual max achievable by chaining
-// every viable reorganização, not a naive sum -- see
-// maximizarReorganizacoes).
-const ANALISE_CACHE_VERSION = 9;
+// never mistaken for a fresh one and shown as-is. Bumped to 10 because both
+// halves of the analysis now pick the best SET of stores to close instead of
+// the best single one (see melhorFechamento), so `economia` on a cached
+// report can differ from what the same cart reports now.
+const ANALISE_CACHE_VERSION = 10;
 
 /** Cheap fingerprint of a search result, to know whether a cached analysis is still current. */
 function hashResultado(resultado) {
@@ -765,60 +800,6 @@ function hashResultado(resultado) {
     .map((b) => `${b.loja}:${b.contadorPreco}:${b.contadorItens}:${b.frete}`)
     .sort();
   return `v${ANALISE_CACHE_VERSION}|${blocos.length}|${partes.join("|")}`;
-}
-
-function formatarRelatorioTexto(relatorio) {
-  const linhas = [];
-  linhas.push("Análise de Economia — Compra por Lista");
-  linhas.push(
-    `Total atual: R$ ${formatarMoeda(relatorio.totalCardsAtual + relatorio.totalFreteAtual)} ` +
-      `(${relatorio.consolidado.lojas.length} loja(s), R$ ${formatarMoeda(relatorio.totalFreteAtual)} de frete)`,
-  );
-  linhas.push(
-    "Estimativa: considera só as lojas já presentes neste resultado e assume o frete atual de cada uma.",
-  );
-  linhas.push("");
-
-  linhas.push(`── Alertas de frete caro (acima de R$ ${formatarMoeda(relatorio.freteCaroLimiar ?? FRETE_CARO_LIMIAR_PADRAO)}) ──`);
-  if (relatorio.alertasFreteCaro.length === 0) {
-    linhas.push("Nenhuma loja com frete acima do limite configurado.");
-  } else {
-    relatorio.alertasFreteCaro.forEach((l) => linhas.push(`- ${l.nome}: R$ ${formatarMoeda(l.frete)}`));
-  }
-  linhas.push("");
-
-  linhas.push("── Economia por reorganização ──");
-  linhas.push("Nenhuma carta deixa de ser comprada -- só muda a loja de origem, pra fechar uma loja inteira.");
-  if (relatorio.reorganizacoes.length === 0) {
-    linhas.push("Nenhuma loja pode ser totalmente esvaziada pras outras já presentes neste resultado.");
-  } else {
-    relatorio.reorganizacoes.forEach((item, i) => {
-      linhas.push(`${i + 1}. Fechar "${item.nome}" — economiza R$ ${formatarMoeda(item.economia)}`);
-      item.instrucoes.forEach((l) => linhas.push(`   ${l}`));
-      linhas.push("");
-    });
-  }
-  linhas.push("");
-
-  linhas.push("── Economia de frete por remoção ──");
-  linhas.push(
-    "\"Economiza\" é só a parte por redistribuição (loja fechando e/ou cartas realocadas) -- não inclui " +
-      "o preço da própria carta removida.",
-  );
-  if (relatorio.resultados.length === 0) {
-    linhas.push(
-      "Nenhuma economia por redistribuição encontrada: todas as lojas continuam necessárias mesmo sem " +
-        "as cartas mais caras da lista.",
-    );
-  } else {
-    relatorio.resultados.forEach((item, i) => {
-      linhas.push(`${i + 1}. ${item.nome} — economiza R$ ${formatarMoeda(item.economia)} (por redistribuição)`);
-      item.instrucoes.forEach((l) => linhas.push(`   ${l}`));
-      linhas.push("");
-    });
-  }
-
-  return linhas.join("\n");
 }
 
 // ── UI ───────────────────────────────────────────────────────────────────────
@@ -900,45 +881,71 @@ if (typeof document !== "undefined") {
    * shows the savings caption -- entirely local, no LigaMagic request of any
    * kind beyond the same getListaResultado round-trip the button's own click
    * handler already uses.
+   *
+   * Returns whether it actually found a different result than the last one it
+   * analyzed. initAnaliseReativa keys the modal rebuild off that: rebuilding
+   * on every trigger would put the modal's own DOM churn back through the
+   * observer that triggered it.
    */
   let ultimoHashIndicador = null;
   async function atualizarIndicadorEconomia(indicador) {
-    if (freteAindaCalculando()) return;
+    if (freteAindaCalculando()) return false;
     const resultado = await sendMessage({ action: "getListaResultado" });
-    if (!resultado || Object.keys(resultado).length === 0) return;
+    if (!resultado || Object.keys(resultado).length === 0) return false;
 
     const hash = hashResultado(resultado);
-    if (hash === ultimoHashIndicador) return;
+    if (hash === ultimoHashIndicador) return false;
 
     const settings = await getSettings();
-    if (settings?.addAnaliseEconomia === false) return;
+    if (settings?.addAnaliseEconomia === false) return false;
     const freteCaroLimiar = Number(settings?.freteCaroLimiar) || FRETE_CARO_LIMIAR_PADRAO;
 
     const cache = settings?.analiseEconomiaCache;
     const relatorio =
       cache?.hash === hash ? cache.relatorio : await runAndCache(resultado, hash, freteCaroLimiar);
-    if (relatorio.baseline == null) return; // frete de alguma loja ainda pendente -- não mostra nada ainda
+    if (relatorio.baseline == null) return false; // frete de alguma loja ainda pendente -- não mostra nada ainda
 
     ultimoHashIndicador = hash;
     renderIndicadorEconomia(indicador, relatorio);
+    return true;
   }
 
   /**
-   * Keeps the caption in sync as searches happen, without polling: watches
-   * the same "Calculando frete..." indicator frete-caro-alert.js and
-   * esperarFreteCalculado() already key off, narrowly scoped to just its own
-   * class attribute so this never reacts to unrelated page mutations.
+   * Re-runs the analysis whenever the list it describes changes -- a new
+   * search, a card or a store leaving, a quantity edited -- so neither the
+   * caption under the button nor an open modal can go on showing numbers for
+   * a list that no longer exists. Nothing here is a manual action: there's no
+   * "recalculate" button precisely because this covers it.
+   *
+   * Two independent triggers, because neither alone catches everything:
+   * observarMudancasNaLista sees rows and quantities changing (see its own
+   * doc comment), while the "Calculando frete..." indicator this also watches
+   * is what marks the END of the site's own shipping recalculation -- until
+   * that lands, the numbers are still in flux and atualizarIndicadorEconomia
+   * deliberately bails out. Both funnel into the same debounced refresh, and
+   * the result-hash check inside makes a redundant pass a no-op.
    */
-  function initIndicadorEconomiaObserver(indicador) {
-    const tentar = () => atualizarIndicadorEconomia(indicador);
-    tentar();
+  function initAnaliseReativa(indicador) {
+    const atualizar = async () => {
+      const mudou = await atualizarIndicadorEconomia(indicador);
+      if (!mudou) return;
+      // Só reabre a modal se ela já estiver na tela -- uma mudança na lista
+      // nunca deve fazer a modal aparecer sozinha.
+      if (!document.getElementById("lgm-analise-overlay")) return;
+      const button = document.getElementById("lgm-analise-economia-btn");
+      if (button) await handleAnaliseClick(button, false, indicador);
+    };
+
+    const agendar = observarMudancasNaLista(atualizar);
 
     const calculando = document.getElementById("main_calculando_fretes");
-    if (!calculando) {
-      logNotShown("Indicador de economia (observer de frete)", "#main_calculando_fretes não encontrado");
-      return;
+    if (calculando) {
+      new MutationObserver(agendar).observe(calculando, { attributes: true, attributeFilter: ["class"] });
+    } else {
+      logNotShown("Análise de Economia (observer de frete)", "#main_calculando_fretes não encontrado");
     }
-    new MutationObserver(tentar).observe(calculando, { attributes: true, attributeFilter: ["class"] });
+
+    atualizar();
   }
 
   function injectAnaliseButton() {
@@ -954,7 +961,7 @@ if (typeof document !== "undefined") {
     // two content scripts happens to run first.
     finalizarBtn.after(indicador, button);
     button.addEventListener("click", () => handleAnaliseClick(button, false, indicador));
-    initIndicadorEconomiaObserver(indicador);
+    initAnaliseReativa(indicador);
 
     analiseLog('Injected "Análise de Economia" button.');
     return true;
@@ -988,7 +995,7 @@ if (typeof document !== "undefined") {
     return { overlay, modal };
   }
 
-  function buildHeader(relatorio, fromCache, onRecalcular) {
+  function buildHeader() {
     const header = document.createElement("div");
     header.style.cssText = "padding: 16px 20px; border-bottom: 1px solid #eee; flex-shrink: 0;";
 
@@ -1003,17 +1010,6 @@ if (typeof document !== "undefined") {
     const controls = document.createElement("div");
     controls.style.cssText = "display: flex; align-items: center; gap: 10px;";
 
-    if (fromCache) {
-      const recalcBtn = document.createElement("button");
-      recalcBtn.type = "button";
-      recalcBtn.textContent = "Recalcular";
-      recalcBtn.style.cssText =
-        "padding: 4px 10px; border: 1px solid #ccc; border-radius: 4px; background: #fff; " +
-        "cursor: pointer; font-size: 12px; font-family: inherit;";
-      recalcBtn.addEventListener("click", onRecalcular);
-      controls.appendChild(recalcBtn);
-    }
-
     const closeBtn = document.createElement("button");
     closeBtn.type = "button";
     closeBtn.textContent = "✕";
@@ -1023,21 +1019,6 @@ if (typeof document !== "undefined") {
 
     titleRow.appendChild(controls);
     header.appendChild(titleRow);
-
-    const totalAtual = relatorio.totalCardsAtual + relatorio.totalFreteAtual;
-    const summary = document.createElement("div");
-    summary.style.cssText = "margin-top: 6px; font-size: 13px; color: #444;";
-    summary.textContent =
-      `Total atual: R$ ${formatarMoeda(totalAtual)} ` +
-      `(${relatorio.consolidado.lojas.length} loja(s), R$ ${formatarMoeda(relatorio.totalFreteAtual)} de frete)` +
-      (fromCache ? " — resultado salvo" : "");
-    header.appendChild(summary);
-
-    const aviso = document.createElement("div");
-    aviso.style.cssText = "margin-top: 4px; font-size: 11px; color: #888; font-style: italic;";
-    aviso.textContent =
-      "Estimativa — considera apenas as lojas já presentes neste resultado e assume o frete atual de cada loja.";
-    header.appendChild(aviso);
 
     return header;
   }
@@ -1125,32 +1106,22 @@ if (typeof document !== "undefined") {
     return row;
   }
 
-  // Tinted straight from SAMV_PURPLE (not a separate hardcoded gray) so the
-  // divider both reads clearly against the modal's white body -- the
-  // previous #f7f7f8-on-white pairing was only a ~1.03:1 luminance step,
-  // essentially invisible as a section boundary -- and ties visually to
-  // every other purple control this extension adds. ~4.9:1 text contrast at
-  // 14% opacity, comfortably above the 4.5:1 WCAG AA floor.
-  function buildSectionTitle(text, subtitle) {
-    const wrap = document.createElement("div");
-    wrap.style.cssText =
-      "padding: 10px 20px; background: rgba(109, 79, 196, 0.14); " +
-      "border-bottom: 1px solid rgba(109, 79, 196, 0.35);";
-
-    const title = document.createElement("div");
-    title.style.cssText =
-      `font-size: 12px; font-weight: 700; color: ${SAMV_PURPLE}; text-transform: uppercase; letter-spacing: 0.02em;`;
-    title.textContent = text;
-    wrap.appendChild(title);
-
-    if (subtitle) {
-      const sub = document.createElement("div");
-      sub.style.cssText = `margin-top: 3px; font-size: 11px; font-weight: 400; color: ${SAMV_PURPLE}; opacity: 0.85;`;
-      sub.textContent = subtitle;
-      wrap.appendChild(sub);
-    }
-
-    return wrap;
+  /**
+   * The line explaining what the open tab's suggestions actually mean --
+   * what used to be each section title's own subtitle back when all three
+   * lists were stacked in one scrolling body. Tinted from SAMV_PURPLE (not a
+   * separate hardcoded gray) so it reads clearly against the white panel --
+   * ~4.9:1 contrast at 14% opacity, above the 4.5:1 WCAG AA floor -- and
+   * ties visually to every other purple control this extension adds.
+   */
+  function buildAbaSubtitulo(texto) {
+    const sub = document.createElement("div");
+    sub.style.cssText =
+      `padding: 10px 20px; background: rgba(109, 79, 196, 0.14); ` +
+      `border-bottom: 1px solid rgba(109, 79, 196, 0.35); ` +
+      `font-size: 11px; color: ${SAMV_PURPLE}; line-height: 1.4;`;
+    sub.textContent = texto;
+    return sub;
   }
 
   function buildEmptyMessage(text) {
@@ -1182,126 +1153,242 @@ if (typeof document !== "undefined") {
     return row;
   }
 
-  function buildBody(relatorio) {
-    const body = document.createElement("div");
-    body.style.cssText = "overflow-y: auto; flex: 1;";
+  /**
+   * The three kinds of suggestion, one per tab. Each `render` fills a fresh
+   * panel on demand (only the open tab's rows exist in the DOM at a time),
+   * and `contagem` drives both the count shown on the tab itself and which
+   * tab opens first -- landing on an empty list when another one has
+   * something to show would hide the very thing the modal was opened for.
+   */
+  let abaSelecionada = null;
 
+  function definirAbas(relatorio) {
     const limiar = relatorio.freteCaroLimiar ?? FRETE_CARO_LIMIAR_PADRAO;
-    body.appendChild(
-      buildSectionTitle(
-        `Alertas de frete caro (acima de R$ ${formatarMoeda(limiar)})`,
-        "Lojas cujo frete sozinho já é considerado alto, mesmo sem nenhuma sugestão de economia envolvendo elas.",
-      ),
-    );
-    if (relatorio.alertasFreteCaro.length === 0) {
-      body.appendChild(buildEmptyMessage("Nenhuma loja com frete acima do valor configurado no painel da extensão."));
-    } else {
-      relatorio.alertasFreteCaro.forEach((item) => body.appendChild(buildAlertaFreteCaroRow(item)));
-    }
 
-    body.appendChild(
-      buildSectionTitle(
-        "Economia por reorganização",
-        "Nenhuma carta deixa de ser comprada — só muda a loja de origem, liberando o frete de uma loja inteira.",
-      ),
-    );
-    if (relatorio.reorganizacoes.length === 0) {
-      body.appendChild(
-        buildEmptyMessage(
+    return [
+      {
+        titulo: "Reorganização entre lojas",
+        contagem: relatorio.reorganizacoes.length,
+        subtitulo:
+          "Nenhuma carta deixa de ser comprada — só muda a loja de origem, liberando o frete de uma loja inteira.",
+        vazio:
           "Nenhuma loja pode ser totalmente esvaziada para as outras já presentes neste resultado sem " +
-            "deixar de comprar nenhuma carta.",
-        ),
-      );
-    } else {
-      const tooltip =
-        "Nenhuma carta é removida da compra -- ela só passa a ser comprada em outra loja já presente " +
-        "neste resultado, liberando o frete desta.";
-      relatorio.reorganizacoes.forEach((item) => {
-        const onAplicar = item.plano ? () => aplicarPlanoEconomia(item.plano) : undefined;
-        body.appendChild(buildRow(item, tooltip, onAplicar));
-      });
-    }
-
-    body.appendChild(
-      buildSectionTitle(
-        "Economia de frete por remoção",
-        "Deixar de comprar uma carta cara — \"economiza\" aqui não inclui o preço da própria carta, só o que sobra de fechar loja(s) e/ou realocar as outras cartas.",
-      ),
-    );
-    if (relatorio.resultados.length === 0) {
-      body.appendChild(
-        buildEmptyMessage(
+          "deixar de comprar nenhuma carta.",
+        render: (painel) => {
+          const tooltip =
+            "Nenhuma carta é removida da compra -- ela só passa a ser comprada em outra loja já presente " +
+            "neste resultado, liberando o frete desta.";
+          relatorio.reorganizacoes.forEach((item) => {
+            const onAplicar = item.plano ? () => aplicarPlanoEconomia(item.plano) : undefined;
+            painel.appendChild(buildRow(item, tooltip, onAplicar));
+          });
+        },
+      },
+      {
+        titulo: "Remoção de cartas",
+        contagem: relatorio.resultados.length,
+        subtitulo:
+          'Deixar de comprar uma carta cara — "economiza" aqui não inclui o preço da própria carta, só o ' +
+          "que sobra de fechar loja(s) e/ou realocar as outras cartas.",
+        vazio:
           "Nenhuma economia por redistribuição encontrada: todas as lojas deste resultado continuam " +
-            "necessárias mesmo sem as cartas mais caras da lista.",
-        ),
-      );
-    } else {
-      const tooltip =
-        "Economia por redistribuição: não inclui o preço da própria carta, só o que sobra de fechar " +
-        "loja(s) e/ou realocar as outras cartas para ofertas mais baratas.";
-      relatorio.resultados.forEach((item) => {
-        const onAplicar = item.plano ? () => aplicarPlanoEconomia(item.plano) : undefined;
-        body.appendChild(buildRow(item, tooltip, onAplicar));
-      });
-    }
-
-    return body;
+          "necessárias mesmo sem as cartas mais caras da lista.",
+        render: (painel) => {
+          const tooltip =
+            "Economia por redistribuição: não inclui o preço da própria carta, só o que sobra de fechar " +
+            "loja(s) e/ou realocar as outras cartas para ofertas mais baratas.";
+          relatorio.resultados.forEach((item) => {
+            const onAplicar = item.plano ? () => aplicarPlanoEconomia(item.plano) : undefined;
+            painel.appendChild(buildRow(item, tooltip, onAplicar));
+          });
+        },
+      },
+      {
+        titulo: "Fretes acima da média",
+        contagem: relatorio.alertasFreteCaro.length,
+        subtitulo:
+          `Lojas cujo frete sozinho já passa de R$ ${formatarMoeda(limiar)} (valor configurado no painel da ` +
+          "extensão), mesmo sem nenhuma sugestão de economia envolvendo elas.",
+        vazio: "Nenhuma loja com frete acima do valor configurado no painel da extensão.",
+        render: (painel) => {
+          relatorio.alertasFreteCaro.forEach((item) => painel.appendChild(buildAlertaFreteCaroRow(item)));
+        },
+      },
+    ];
   }
 
-  function buildFooter(relatorio) {
-    const footer = document.createElement("div");
-    footer.style.cssText =
-      "padding: 12px 20px; border-top: 1px solid #eee; display: flex; justify-content: flex-end; " +
-      "gap: 8px; flex-shrink: 0;";
+  function estiloAba(ativa) {
+    return (
+      "flex: 1; padding: 8px 10px; font-size: 12px; font-family: inherit; cursor: pointer; line-height: 1.25; " +
+      "border: 1px solid #ddd; border-bottom: none; border-radius: 6px 6px 0 0; margin-bottom: -1px; " +
+      (ativa
+        ? `background: #fff; color: ${SAMV_PURPLE}; font-weight: 700;`
+        : "background: #f2f2f4; color: #666; font-weight: 600;")
+    );
+  }
 
-    if (relatorio.reorganizacoes.length > 0) {
-      const aplicarTodasBtn = document.createElement("button");
-      aplicarTodasBtn.type = "button";
-      aplicarTodasBtn.textContent = "Aplicar Economia";
-      aplicarTodasBtn.style.cssText =
-        "padding: 6px 14px; border: none; border-radius: 4px; cursor: pointer; font-weight: 700; font-family: inherit;";
-      applySamvStyle(aplicarTodasBtn);
-      aplicarTodasBtn.addEventListener("click", async () => {
-        aplicarTodasBtn.disabled = true;
-        aplicarTodasBtn.textContent = "Aplicando...";
-        try {
-          await aplicarTodasReorganizacoes();
-          const button = document.getElementById("lgm-analise-economia-btn");
-          if (button) await handleAnaliseClick(button, true);
-        } catch (err) {
-          analiseLog("Falha ao aplicar todas as economias —", err.message);
-          aplicarTodasBtn.disabled = false;
-          aplicarTodasBtn.textContent = "Aplicar Economia";
-        }
+  /**
+   * The tab strip plus the panel below it. The active tab's own white
+   * background sits on top of the strip's bottom border (margin-bottom:-1px)
+   * so it reads as connected to the panel instead of floating above it.
+   */
+  function buildAbas(relatorio) {
+    const wrap = document.createElement("div");
+    wrap.style.cssText = "display: flex; flex-direction: column; flex: 1; min-height: 0;";
+
+    const barra = document.createElement("div");
+    barra.style.cssText =
+      "display: flex; align-items: stretch; gap: 4px; padding: 10px 20px 0; border-bottom: 1px solid #ddd; flex-shrink: 0;";
+
+    const painel = document.createElement("div");
+    painel.style.cssText = "overflow-y: auto; flex: 1;";
+
+    const abas = definirAbas(relatorio);
+    const botoes = abas.map((aba) => {
+      const botao = document.createElement("button");
+      botao.type = "button";
+      botao.textContent = aba.contagem > 0 ? `${aba.titulo} (${aba.contagem})` : aba.titulo;
+      return botao;
+    });
+
+    const abrir = (indice) => {
+      abaSelecionada = abas[indice].titulo;
+      botoes.forEach((botao, i) => {
+        botao.style.cssText = estiloAba(i === indice);
       });
-      footer.appendChild(aplicarTodasBtn);
-    }
+      painel.textContent = "";
+      painel.scrollTop = 0;
+      const aba = abas[indice];
+      painel.appendChild(buildAbaSubtitulo(aba.subtitulo));
+      if (aba.contagem === 0) painel.appendChild(buildEmptyMessage(aba.vazio));
+      else aba.render(painel);
+    };
 
-    const copyBtn = document.createElement("button");
-    copyBtn.type = "button";
-    copyBtn.textContent = "Copiar análise";
-    copyBtn.style.cssText =
-      "padding: 6px 14px; border: none; border-radius: 4px; cursor: pointer; font-weight: 700; font-family: inherit;";
-    applySamvStyle(copyBtn);
-    copyBtn.addEventListener("click", async () => {
+    botoes.forEach((botao, i) => {
+      botao.addEventListener("click", () => abrir(i));
+      barra.appendChild(botao);
+    });
+
+    // A modal é reconstruída sozinha toda vez que a lista muda, então a aba
+    // que o usuário abriu precisa sobreviver a isso -- cair de volta na aba
+    // padrão a cada alteração de quantidade jogaria fora a escolha dele.
+    const lembrada = abas.findIndex((aba) => aba.titulo === abaSelecionada);
+    const primeiraComConteudo = abas.findIndex((aba) => aba.contagem > 0);
+    if (lembrada !== -1) abrir(lembrada);
+    else abrir(primeiraComConteudo === -1 ? 0 : primeiraComConteudo);
+
+    wrap.appendChild(barra);
+    wrap.appendChild(painel);
+    return wrap;
+  }
+
+  /**
+   * The two action buttons, sitting right under the header (and under the
+   * Super Pesquisa status, whenever there's a run to report): "Economizar
+   * nessa compra", which applies every viable reorganização at once, and
+   * "Super Pesquisa", which starts the wider-search flow (see
+   * iniciarSuperPesquisa in super-pesquisa.js, a top-level function in that
+   * file safe to call directly from here).
+   *
+   * The first one is always rendered, disabled with an explanatory caption
+   * under it once nothing's left to apply -- so "no savings left" is
+   * something the modal says out loud, not a button that quietly isn't
+   * there.
+   */
+  function buildBotoesCentrais(relatorio) {
+    const wrap = document.createElement("div");
+    wrap.style.cssText =
+      "padding: 14px 20px; display: flex; justify-content: center; align-items: flex-start; gap: 28px; " +
+      "flex-wrap: wrap; flex-shrink: 0;";
+
+    const aplicarCol = document.createElement("div");
+    aplicarCol.style.cssText = "display: flex; flex-direction: column; align-items: center; gap: 4px;";
+
+    const economiaDisponivel = calcularEconomiaTotalDisponivel(relatorio);
+    const temEconomia = economiaDisponivel > ANALISE_ECONOMIA_MINIMA;
+
+    const aplicarTodasBtn = document.createElement("button");
+    aplicarTodasBtn.type = "button";
+    aplicarTodasBtn.textContent = "Economizar nessa compra";
+    aplicarTodasBtn.disabled = !temEconomia;
+    aplicarTodasBtn.style.cssText =
+      "padding: 6px 14px; border: none; border-radius: 4px; font-weight: 700; font-family: inherit; font-size: 12px; " +
+      (temEconomia ? "cursor: pointer;" : "cursor: not-allowed; opacity: 0.5;");
+    applySamvStyle(aplicarTodasBtn);
+    aplicarTodasBtn.addEventListener("click", async () => {
+      aplicarTodasBtn.disabled = true;
+      aplicarTodasBtn.textContent = "Aplicando...";
       try {
-        await navigator.clipboard.writeText(formatarRelatorioTexto(relatorio));
-        showCopiedFeedback(copyBtn);
+        await aplicarTodasReorganizacoes();
+        const button = document.getElementById("lgm-analise-economia-btn");
+        if (button) await handleAnaliseClick(button, true);
       } catch (err) {
-        analiseLog("Falha ao copiar análise —", err.message);
+        analiseLog("Falha ao aplicar todas as economias —", err.message);
+        aplicarTodasBtn.disabled = false;
+        aplicarTodasBtn.textContent = "Economizar nessa compra";
       }
     });
-    footer.appendChild(copyBtn);
+    aplicarCol.appendChild(aplicarTodasBtn);
 
-    return footer;
+    // Abaixo do botão, não acima: é o resultado de apertá-lo, não um rótulo.
+    const aplicarCaption = document.createElement("div");
+    aplicarCaption.style.cssText = temEconomia
+      ? "font-size: 13px; font-weight: 700; color: #1a7f37; text-align: center;"
+      : "font-size: 11px; color: #444; text-align: center;";
+    aplicarCaption.textContent = temEconomia
+      ? `-R$ ${formatarMoeda(economiaDisponivel)}`
+      : "Economia máxima já alcançada nessa lista";
+    aplicarCol.appendChild(aplicarCaption);
+    wrap.appendChild(aplicarCol);
+
+    const buscarBtn = document.createElement("button");
+    buscarBtn.type = "button";
+    buscarBtn.textContent = "Super Pesquisa";
+    buscarBtn.style.cssText =
+      "padding: 6px 14px; border: 1px solid #ccc; border-radius: 4px; background: #fff; cursor: pointer; " +
+      "font-weight: 700; font-family: inherit; font-size: 12px;";
+    buscarBtn.addEventListener("click", async () => {
+      buscarBtn.disabled = true;
+      try {
+        await iniciarSuperPesquisa();
+      } finally {
+        buscarBtn.disabled = false;
+      }
+    });
+    wrap.appendChild(buscarBtn);
+
+    return wrap;
   }
 
-  function showModal(relatorio, fromCache, onRecalcular) {
+  /**
+   * Rendered by super-pesquisa.js's own top-level renderSuperPesquisaStatusSection
+   * (that file keeps the actual Super Pesquisa run state -- see its own doc
+   * comment on why this file's block-scoped code can call a top-level
+   * function in another content script, but not the other way around).
+   * Hidden entirely (display:none, set by that function itself) whenever
+   * there's no run in progress or to report.
+   */
+  function buildSuperPesquisaStatusSection() {
+    const section = document.createElement("div");
+    section.id = "lgm-analise-super-pesquisa-status";
+    section.style.cssText = "padding: 14px 20px; border-bottom: 1px solid #eee; display: none;";
+    renderSuperPesquisaStatusSection(section);
+    return section;
+  }
+
+  /**
+   * Order matters: the Super Pesquisa status sits between the header and the
+   * buttons, so a run's progress (or its result, waiting on a Sim/Não) is
+   * the first thing read after the title -- and right above the very button
+   * that started it.
+   */
+  function showModal(relatorio) {
     document.getElementById("lgm-analise-overlay")?.remove();
     const { overlay, modal } = buildModalShell();
-    modal.appendChild(buildHeader(relatorio, fromCache, onRecalcular));
-    modal.appendChild(buildBody(relatorio));
-    modal.appendChild(buildFooter(relatorio));
+    modal.appendChild(buildHeader());
+    modal.appendChild(buildSuperPesquisaStatusSection());
+    modal.appendChild(buildBotoesCentrais(relatorio));
+    modal.appendChild(buildAbas(relatorio));
     document.body.appendChild(overlay);
   }
 
@@ -1416,7 +1503,7 @@ if (typeof document !== "undefined") {
       if (cache && cache.hash === hash) {
         renderIndicadorEconomia(indicador, cache.relatorio);
         ultimoHashIndicador = hash;
-        showModal(cache.relatorio, true, () => handleAnaliseClick(button, true, indicador));
+        showModal(cache.relatorio);
         return;
       }
     }
@@ -1436,7 +1523,7 @@ if (typeof document !== "undefined") {
       }
       renderIndicadorEconomia(indicador, relatorio);
       ultimoHashIndicador = hash;
-      showModal(relatorio, false, () => handleAnaliseClick(button, true, indicador));
+      showModal(relatorio);
     } catch (err) {
       analiseLog("Falha ao calcular a análise —", err.message);
     } finally {
@@ -1489,7 +1576,7 @@ if (typeof document !== "undefined") {
    * from scratch: applying one suggestion can change what's left to suggest (a
    * card that just moved into a store may now make that store newly
    * closeable, or no longer closeable elsewhere) -- and reopens the modal
-   * with the fresh result, same as clicking "Recalcular" would.
+   * with the fresh result.
    */
   async function aplicarPlanoEconomia(plano) {
     aplicarPlanoNaTela(plano);
@@ -1504,23 +1591,20 @@ if (typeof document !== "undefined") {
   /**
    * The "Aplicar Economia" footer button's real, DOM-driven counterpart to
    * maximizarReorganizacoes: repeatedly re-fetches the live resultado, finds
-   * the single best reorganização still available right now, and applies it
-   * for real -- never trusting a plan computed against an earlier or
-   * simulated state, since applying one reorganização can change what else
-   * is viable (a store just vacated becomes a destination, one that just
-   * filled up may run out of the free stock a still-pending suggestion was
-   * counting on). Same reasoning aplicarPlanoEconomia already follows for a
-   * single real application; this just runs it in a loop until nothing is
-   * left to apply.
+   * the best set of stores to close right now, and applies it for real --
+   * never trusting a plan computed against an earlier state, since the live
+   * page recalculates frete as stores close and quantities move, which can
+   * change what's still worth doing. Same reasoning aplicarPlanoEconomia
+   * already follows for a single real application; this just runs it in a
+   * loop until nothing is left to apply.
    */
   async function aplicarTodasReorganizacoes() {
     while (true) {
       const resultado = await sendMessage({ action: "getListaResultado" });
       const consolidado = consolidarResultado(resultado);
       if (consolidado.lojasSemFrete.length > 0) break;
-      const reorganizacoes = selecionarReorganizacoes(consolidado);
-      if (reorganizacoes.length === 0) break;
-      const melhor = reorganizacoes[0];
+      const melhor = melhorFechamento(consolidado);
+      if (!melhor) break;
       aplicarPlanoNaTela(construirPlanoAplicacaoReorganizacao(melhor));
       // Room for the page's own handlers to settle (and for a store closing
       // or a quantity moving to potentially retrigger frete recalculation)

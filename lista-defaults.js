@@ -232,6 +232,62 @@ function injectLoadDefaultsButton(container) {
   positionLoadDefaultsButton(content, select, button);
 }
 
+// ── Rótulo do botão "Pesquisar" ──────────────────────────────────────────────
+/**
+ * O botão nativo "Pesquisar" diz só "Pesquisar", enquanto o alcance real da
+ * busca depende do rádio "Tipo de Busca" (txt_tipo_filtro) lá em cima, que o
+ * LigaMagic lembra por conta entre visitas -- dá pra chegar na tela e
+ * pesquisar sem nunca ver qual dos dois está marcado. Uma segunda linha no
+ * próprio botão diz qual é.
+ *
+ * "2" é "Minhas Favoritas + Buscar Lojas" no site: as favoritas da conta mais
+ * as lojas adicionadas na barra de busca de lojas (store-search-override.js),
+ * daí "Favoritas + Buscadas".
+ */
+const PESQUISAR_SUBTITULO_POR_FILTRO = {
+  1: "Todas as Lojas",
+  2: "Favoritas + Buscadas",
+};
+
+function renderPesquisarLabel(botao) {
+  const marcado = document.querySelector('input[name="txt_tipo_filtro"]:checked')?.value;
+  const subtitulo = PESQUISAR_SUBTITULO_POR_FILTRO[marcado];
+
+  botao.textContent = "";
+  botao.style.lineHeight = "1.2";
+  botao.style.textAlign = "center";
+
+  const principal = document.createElement("div");
+  principal.textContent = "Pesquisar";
+  botao.appendChild(principal);
+
+  if (!subtitulo) return; // nenhum rádio marcado — deixa só o rótulo original
+  const detalhe = document.createElement("div");
+  detalhe.textContent = subtitulo;
+  detalhe.style.cssText = "font-size: 0.85em; font-weight: 400; opacity: 0.9;";
+  botao.appendChild(detalhe);
+}
+
+/**
+ * Só o conteúdo do botão é reescrito -- o elemento em si, seu id e seu
+ * onclick nativo (CardsOrcamento.checkList) ficam intactos, então clicar nele
+ * continua disparando exatamente a mesma busca de antes.
+ */
+function injectPesquisarLabel() {
+  const botao = document.getElementById("btPesquisar");
+  if (!botao) return false; // ainda não renderizou — waitForElement tenta de novo (ver initListaCardsDefaults)
+  if (botao.dataset.lgmLabel === "1") return true;
+  botao.dataset.lgmLabel = "1";
+
+  renderPesquisarLabel(botao);
+  // Delegado no document: os rádios ficam dentro do passo de filtros, que o
+  // site esconde/reexibe conforme o usuário navega entre as etapas.
+  document.addEventListener("change", (e) => {
+    if (e.target.matches?.('input[name="txt_tipo_filtro"]')) renderPesquisarLabel(botao);
+  });
+  return true;
+}
+
 let listaCardsApplied = false;
 
 function tryApplyListaCardsDefaults() {
@@ -271,6 +327,14 @@ function tryApplyListaCardsDefaults() {
 function initListaCardsDefaults() {
   if (!isListaCardsPage()) return;
   waitForElement(tryApplyListaCardsDefaults);
+
+  const PESQUISAR_TIMEOUT_MS = 15_000;
+  waitForElement(injectPesquisarLabel, PESQUISAR_TIMEOUT_MS);
+  setTimeout(() => {
+    if (!document.getElementById("btPesquisar")?.dataset.lgmLabel) {
+      logNotShown("Rótulo do botão Pesquisar", "#btPesquisar não apareceu na página");
+    }
+  }, PESQUISAR_TIMEOUT_MS);
 }
 
 initListaCardsDefaults();

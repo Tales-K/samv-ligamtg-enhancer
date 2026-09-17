@@ -71,46 +71,88 @@ página individual da carta
 - Usar os últimos valores selecionados manualmente em vez dos padrões
   configurados
 - Botão "Carregar filtro padrão" — aplica os valores configurados sob demanda
+- Segunda linha no botão "Pesquisar" do formulário de cartas e filtros,
+  dizendo o alcance da busca conforme o "Tipo de Busca" selecionado:
+  "Todas as Lojas" ou "Favoritas + Buscadas"
 - Busca em lojas customizadas — campo para colar o nome, a URL ou o ID de uma
   loja e incluí-la na busca sem mexer nos favoritos reais
 - Botão "Copiar Lista de Compras" — copia os cards ainda na lista, por loja,
   em formato de lista de Magic (com opções: incluir versão, qualidade, idioma
   e preço de cada carta); o comentário de cada loja também traz o ID dela e,
   quando já resolvido, o site
-- Botão "Análise de Economia" — três seções: "Economia de frete por remoção"
-  (deixar de comprar uma carta cara, considerando o frete das lojas
-  envolvidas), "Economia por reorganização" (comprar as mesmas cartas em
-  outra loja já usada, sem remover nenhuma, pra fechar uma loja inteira e
-  economizar o frete dela) e "Alertas de frete caro" (lojas cujo frete
-  sozinho já está acima do valor configurado no painel)
+- Botão "Análise de Economia" — abre uma modal com, de cima pra baixo: o
+  cabeçalho, o status da Super Pesquisa (ver abaixo), os dois botões de
+  ação e três abas de sugestões:
+  - "Reorganização entre lojas" — comprar as mesmas cartas em outra loja já
+    usada, sem remover nenhuma, pra fechar uma ou mais lojas inteiras e
+    economizar o frete delas; quando fechar duas de uma vez rende mais do
+    que fechar qualquer uma sozinha, essa combinação aparece no topo da lista
+  - "Remoção de cartas" — deixar de comprar uma carta cara, considerando o
+    frete das lojas envolvidas
+  - "Fretes acima da média" — lojas cujo frete sozinho já está acima do valor
+    configurado no painel
+  Cada aba mostra quantas sugestões tem, e a modal já abre na primeira que
+  tiver alguma
+- A análise se refaz sozinha sempre que a lista de compras muda — alterar a
+  quantidade de uma carta, remover uma carta ou remover uma loja inteira
+  atualiza tanto a legenda embaixo do botão quanto a modal, se ela estiver
+  aberta (a aba que você escolheu continua aberta). Não é preciso pedir
+  recálculo; a modal também nunca aparece sozinha por causa de uma mudança
+  na lista — só quando você abre
 - Legenda embaixo do botão "Análise de Economia" — assim que o frete de
   todas as lojas termina de calcular, mostra automaticamente quanto dá pra
   economizar por reorganização (nenhuma carta é removida), sem precisar
   abrir a modal primeiro
-- Botão "Aplicar Economia" em cada item das seções "Economia por
-  reorganização" e "Economia de frete por remoção" — ajusta as quantidades
+- Botão "Aplicar Economia" em cada item das abas "Reorganização entre lojas"
+  e "Remoção de cartas" — ajusta as quantidades
   de cada carta nas lojas certas pra realizar aquela sugestão específica na
   tela de resultados, e recalcula a análise em seguida (uma sugestão
   aplicada pode mudar as outras disponíveis)
-- Botão "Aplicar Economia" no rodapé da modal (ao lado de "Copiar Análise")
-  — aplica de uma vez todas as reorganizações possíveis, na ordem que
-  maximiza a economia total (uma sugestão aplicada pode invalidar ou mudar
-  outra, então cada uma é recalculada a partir do estado real antes de
-  aplicar a próxima)
+- Dois botões logo abaixo do cabeçalho da modal: "Economizar nessa compra" —
+  sempre visível, com o quanto dá pra economizar escrito embaixo (ou
+  desabilitado, com "economia máxima já alcançada nessa lista", quando não
+  sobra nada) — fecha de uma vez o conjunto de lojas que rende a maior
+  economia possível; e "Super Pesquisa" (ver abaixo)
+- Super Pesquisa — abre uma segunda aba em segundo plano (sem tirar o foco
+  da aba atual) e refaz a mesma lista de compras numa pesquisa mais ampla
+  (misturando cartas de decks públicos aleatórios só de preenchimento, até
+  uma quantidade alvo, pra forçar o site a considerar mais lojas — nunca
+  comprados). Dessa pesquisa sai o preço e o estoque de cada carta em cada
+  loja encontrada; a partir desse mapa a extensão calcula em quais lojas
+  vale a pena comprar, contando o frete de cada uma, e só então faz a
+  segunda busca — só com as cartas reais — restrita às lojas desse plano.
+  Tudo isso na tentativa de achar um total menor do que essa página sozinha
+  encontraria, já com toda economia por reorganização aplicada no
+  resultado. Detecta sozinho se a lista original
+  usava versões exatas por carta ou só o filtro geral. Enquanto roda, a
+  modal "Análise de Economia" mostra em que etapa está ("Etapa 3 de 6:
+  pesquisa de descoberta, sem restringir lojas") com uma barra de
+  progresso. Ao concluir, mostra ali mesmo as lojas encontradas, o valor
+  total e a economia, perguntando "Gostaria de fazer essa mudança?" com três
+  opções: **Sim** (refaz a busca na própria aba de origem, restrita a essas
+  lojas), **Não** (descarta o resultado) e **Sim, numa nova aba** (foca a
+  segunda aba, que já está com a busca e a reorganização prontas). O
+  resultado fica guardado enquanto a página não recarrega, então fechar e
+  reabrir a modal traz ele de volta. Se o
+  melhor valor encontrado não for menor que o atual, mostra apenas que não
+  achou economia, sem os três botões
 - Alerta de frete caro — destaca em vermelho o frete de uma loja acima do
   valor configurado no painel (padrão R$ 35) e mostra um aviso temporário
   sugerindo bloquear a loja e pesquisar de novo
-- Botão "Super Pesquisa" — abre uma nova aba e refaz a mesma lista de
-  compras numa pesquisa mais ampla (misturando cartas de decks públicos só
-  de preenchimento pra forçar o site a considerar mais lojas, depois
-  restringindo a pesquisa final a essas lojas descobertas), na tentativa de
-  achar um total menor do que essa página sozinha encontraria. Detecta
-  sozinho se a lista original usava versões exatas por carta ou só o filtro
-  geral, e repete o mesmo modo na nova busca. Ao terminar, aplica na própria
-  aba nova todas as economias por reorganização possíveis e mostra uma
-  modal comparando os quatro totais (antes e depois da Super Pesquisa, com
-  e sem reorganização) e a economia total obtida; a aba original só ganha
-  um aviso de quanto foi economizado, sem alterar nada nela
+- Coluna "Preço Mínimo" (entre "Comprar" e "R$ Unit." na tabela de cada
+  loja) — mostra, um em cima do outro, o menor preço que esta extensão já
+  registrou pra essa carta em qualquer loja do LigaMagic (dado local,
+  atualizado sempre que você vê o preço dela em algum lugar — o mesmo cache
+  usado pelo preço em R$ no Archidekt/Moxfield/Scryfall) e o quanto o preço
+  desta oferta está acima desse mínimo, em R$ e %; um traço quando esse valor
+  ainda não foi registrado. Passar o mouse e
+  segurar mostra uma explicação. Um botão "Carregar valores mínimos"
+  aparece entre "Análise de Economia" e "Copiar Lista de Compras" sempre
+  que alguma carta da lista ainda não tiver esse valor salvo, buscando-o em
+  lote (mesmo mecanismo de "Carregar preços pendentes"). O "Sumário Geral"
+  também ganha, logo abaixo de "X Itens", o total de preços mínimos e a
+  diferença para o total atual (considerando as quantidades compradas de
+  cada carta), em roxo
 
 ### Carrinho — `?view=mp/carrinho`
 - Botão "Copiar Lista" — copia os cards do carrinho no formato detalhado do

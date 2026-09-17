@@ -69,6 +69,68 @@ function waitForElement(tryFn, timeoutMs = 15_000) {
   setTimeout(() => observer.disconnect(), timeoutMs);
 }
 
+// ── Mudanças na lista de resultados da "Compra por Lista" ────────────────────
+/**
+ * True if a mutation added or removed a store header or card row. Covers a
+ * whole store closing (CardsOrcamento.item.removeTodosItens drops one wrapper
+ * div holding both the header and every one of its item_ rows as descendants
+ * -- caught here via the removed wrapper's own querySelector, same as an added
+ * one) as well as a single card being removed (CardsOrcamento.item.removeItem
+ * drops the item_ row directly). Narrower than reacting to every mutation:
+ * frete recalculating doesn't touch either of these, and neither does a qty
+ * change -- that one needs its own trigger, see observarMudancasNaLista.
+ */
+function mudouLinhaDeResultado(mutations) {
+  const casa = (n) =>
+    n.nodeType === Node.ELEMENT_NODE &&
+    (n.matches?.(".row.header") ||
+      n.querySelector?.(".row.header") ||
+      n.matches?.('[id^="item_"]') ||
+      n.querySelector?.('[id^="item_"]'));
+  return mutations.some((m) => [...m.addedNodes].some(casa) || [...m.removedNodes].some(casa));
+}
+
+/**
+ * Calls `onChange` (debounced) whenever the results on the "Compra por Lista"
+ * screen change in a way that makes whatever was computed from them stale: a
+ * new search landing, a card or a whole store leaving the list, or a quantity
+ * being edited.
+ *
+ * A qty edit is the one that needs more than a MutationObserver: typing a new
+ * value and leaving the field, or pressing "+", only updates
+ * CardsOrcamento.item.resultado and a few total labels elsewhere on the page
+ * -- no `.row.header`/`[id^="item_"]` node is ever added or removed, so no
+ * mutation matching the observer above ever fires. Caught instead via the same
+ * elements LigaMagic's own inline handlers are wired to: `focusout` (the
+ * bubbling counterpart of `blur`, which doesn't bubble) for a typed value, and
+ * `click` on `.qtyPlus` for the increment button (there is no decrement
+ * button -- lowering a quantity means typing a smaller number).
+ *
+ * Callers must keep `onChange` cheap and idempotent: it runs once per burst,
+ * but bursts are common (applying an economia plan rewrites several rows in a
+ * row).
+ */
+function observarMudancasNaLista(onChange, debounceMs = 600) {
+  let timer = null;
+  const agendar = () => {
+    clearTimeout(timer);
+    timer = setTimeout(onChange, debounceMs);
+  };
+
+  new MutationObserver((mutations) => {
+    if (mudouLinhaDeResultado(mutations)) agendar();
+  }).observe(document.body, { childList: true, subtree: true });
+
+  document.addEventListener("focusout", (e) => {
+    if (e.target.matches?.("input.qty")) agendar();
+  });
+  document.addEventListener("click", (e) => {
+    if (e.target.closest?.(".qtyPlus")) agendar();
+  });
+
+  return agendar;
+}
+
 // ── Extension-injected controls ──────────────────────────────────────────────
 // The same purple the extension's own popup uses, so anything this extension
 // adds to LigaMagic reads as ours at a glance instead of passing for a native

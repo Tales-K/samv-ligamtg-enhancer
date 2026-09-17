@@ -213,40 +213,76 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
  *       second tab it opens, with no question asked
  *     → resolves with { caracteristicas, usouVersoesExatas }
  *
- *   { action: "startSuperPesquisa", payload: { targetLines: string[], filtros, baseline, baselineComReorg } }
+ *   { action: "startSuperPesquisa", payload: { targetLines: string[], filtros, baselineComReorg } }
  *     → fire-and-forget, same reasoning as loadPendingPrices below: opens a
- *       second, focused Compra por Lista tab and drives it through TWO
- *       searches — a wide discovery search (the user's real cards at their
- *       real quantities, the 5 basic land types, and public-deck padding up
- *       to SUPER_PESQUISA_MAX_CARDS lines, unrestricted by store) purely to
- *       see which stores could plausibly be involved, then a second, clean
- *       search of just the user's real cards at their real quantities,
- *       scoped to exactly the stores the first one surfaced (see
- *       handleStartSuperPesquisa) — then asks that same second tab to apply
- *       every viable "economia por reorganização" for real on that clean
- *       result and report back — can take a genuine while, no response
- *       channel is kept open for it
- *     → result travels back to the calling tab as its own
- *       { action: "superPesquisaResult", ok, baseline?, baselineComReorg?,
- *       totalSemReorgDepois?, totalComReorgDepois?, error? } message once
- *       the whole thing finishes (including the second tab's own
- *       reorganização pass)
+ *       second, BACKGROUNDED (active: false — this tab is never meant to be
+ *       looked at directly, see "superPesquisaFocusTab" below for the one
+ *       path that changes that) Compra por Lista tab and drives it through
+ *       TWO searches — a wide discovery search (the user's real cards at
+ *       their true per-line ceiling plus public-deck padding, budgeted to
+ *       SUPER_PESQUISA_DISCOVERY_TARGET_TOTAL_QTY total quantity units,
+ *       unrestricted by store) whose result doubles as a (card × store)
+ *       price/stock map, then a second, clean search of just the user's real
+ *       cards at their real quantities, scoped to the stores a plan built
+ *       from that map picks rather than to every store the first search
+ *       surfaced (see planejarLojasDaCompra) — then asks that same second
+ *       tab to apply every viable "economia por reorganização" for real on
+ *       that clean result and report the resulting total back (see
+ *       "superPesquisaApplyReorgAndReport"/"superPesquisaReorgApplied"
+ *       below) — can take a genuine while, no response channel is kept open
+ *       for it
+ *     → result travels back to the ORIGIN tab as its own
+ *       { action: "superPesquisaResult", ok, secondTabId?, totalComReorgDepois?,
+ *       economia?, lojas?: {id,nome}[], error? } message once the whole
+ *       thing finishes (including the second tab's own reorganização pass);
+ *       the origin tab's own content script (super-pesquisa.js) is what
+ *       turns this into the "Sim / Não / Sim numa nova aba" decision prompt
  *
- *   { action: "superPesquisaFinalizeOnThisTab", baseline, baselineComReorg }
- *     → background → the second tab's own content script (never sent
- *       anywhere else): asks it to read its own just-finished (already
- *       real-quantity, store-scoped) search result, apply every viable
- *       reorganização for real, show its own completion modal with all four
- *       totals, and report back
+ *   { action: "superPesquisaApplyReorgAndReport", context: "discovery" | "applyToOrigin" }
+ *     → background → whichever tab just landed a real-quantity, store-scoped
+ *       search (the second tab after phase 2, OR the origin tab after the
+ *       user clicks "Sim" — see "superPesquisaApplyToOrigin" below): asks it
+ *       to apply every viable reorganização for real and report the
+ *       resulting money total back — this file never builds any UI of its
+ *       own off this, that's entirely the content script's job
  *     → fire-and-forget, no response expected here either — see
- *       "superPesquisaFinalized" below for how it reports back
+ *       "superPesquisaReorgApplied" below for how it reports back
  *
- *   { action: "superPesquisaFinalized", baseline, baselineComReorg, totalSemReorgDepois, totalComReorgDepois }
- *     → the second tab's own content script → background, once it's done
- *       applying reorganizações for real and showing its own modal; relayed
- *       to the origin tab as "superPesquisaResult" above (looked up via
- *       superPesquisaOriginByTabId, keyed by the second tab's own id)
+ *   { action: "superPesquisaReorgApplied", context, totalComReorgDepois }
+ *     → a tab's own content script → background, once it's done applying
+ *       reorganizações for real. This re-reads that same tab's now-final
+ *       resultado itself (handleGetListaResultado) to harvest the real
+ *       store list a purchase there would use (post-reorg closures
+ *       included, via harvestStores) — the content script only ever reports
+ *       the money total, never the store list, since this file already has
+ *       a page-reading primitive for that and re-deriving it independently
+ *       would just be the same read done twice. context "discovery" relays
+ *       a decision prompt to the run's origin tab as "superPesquisaResult"
+ *       above (looked up via superPesquisaContextByTabId, keyed by the
+ *       second tab's own id); context "applyToOrigin" instead confirms the
+ *       change back to that same tab as "superPesquisaAppliedHere" below,
+ *       since by then the user is already looking at it
  *     → fire-and-forget
+ *
+ *   { action: "superPesquisaApplyToOrigin", secondTabId }
+ *     → the ORIGIN tab's own content script → background, sent when the user
+ *       clicks "Sim" on the decision prompt: replays the exact scoped search
+ *       a Super Pesquisa run already found savings in (cached targetLines/
+ *       filtros/storeIds from superPesquisaContextByTabId, keyed by
+ *       secondTabId) directly on the origin tab, then asks it to apply
+ *       reorganização too (see "superPesquisaApplyReorgAndReport" above) —
+ *       this never redoes the discovery pass, just the one real search
+ *     → fire-and-forget; reports back to the SAME (origin) tab as
+ *       { action: "superPesquisaAppliedHere", ok, totalComReorgDepois?,
+ *       lojas?, error? }
+ *
+ *   { action: "superPesquisaFocusTab", secondTabId }
+ *     → the ORIGIN tab's own content script → background, sent when the user
+ *       clicks "Sim numa nova aba" on the decision prompt: brings that
+ *       already-finished second tab to the front (chrome.tabs.update
+ *       active: true) instead of redoing its search a third time — it
+ *       already holds the exact scoped, reorganização-applied result
+ *     → fire-and-forget, no response
  *
  *   { action: "fetchCardTags", set: string, number: string }
  *     → fetches a card's Scryfall Tagger tags (see handleFetchCardTags),
@@ -368,8 +404,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     handleStartSuperPesquisa(request.payload, sender.tab?.id);
     return false;
   }
-  if (request.action === "superPesquisaFinalized") {
-    handleSuperPesquisaFinalized(request, sender.tab?.id);
+  if (request.action === "superPesquisaReorgApplied") {
+    handleSuperPesquisaReorgApplied(request, sender.tab?.id);
+    return false;
+  }
+  if (request.action === "superPesquisaApplyToOrigin") {
+    handleSuperPesquisaApplyToOrigin(request.secondTabId, sender.tab?.id);
+    return false;
+  }
+  if (request.action === "superPesquisaFocusTab") {
+    handleSuperPesquisaFocusTab(request.secondTabId);
     return false;
   }
   if (request.action === "fetchCardTags") {
@@ -1852,14 +1896,16 @@ const SUPER_PESQUISA_MAX_QTY_BASIC = 40;
 // ({"status":"error","message":"Erro interno ao processar a lista."} at
 // ~1040 total units, all 110 lines maxed to 8/40) or just never come back
 // within this extension's own timeout (~650 total units, at 105 lines of
-// qty 5 plus 5 basic-land lines of qty 25). 500 is a deliberately lower
+// qty 5 plus 5 basic-land lines of qty 25). 400 is a deliberately lower
 // target than either failure point. Rather than scaling every line's
 // quantity by a fixed multiplier and hoping the total lands somewhere safe,
-// the discovery line list is now built to add up to close to this number on
-// purpose (see handleStartSuperPesquisa): the user's own real cards first,
-// each at its own true per-line ceiling, then however many public-deck
-// padding lines (also at that ceiling) fit in whatever budget is left.
-const SUPER_PESQUISA_DISCOVERY_TARGET_TOTAL_QTY = 500;
+// the discovery line list is built to add up to close to this number on
+// purpose: the user's own cards first, raised toward their per-line ceiling
+// only as far as this budget allows (see superPesquisaLinhasDeDescoberta --
+// a 100-card list would ask for ~800 units if every line went straight to
+// its ceiling), then however many public-deck padding lines fit in whatever
+// budget is left.
+const SUPER_PESQUISA_DISCOVERY_TARGET_TOTAL_QTY = 400;
 
 // Checked against the user's OWN target lines, to decide whether one of
 // them should use the basic-land ceiling instead of the regular one. No
@@ -1909,6 +1955,36 @@ function superPesquisaLog(...args) {
 }
 
 /**
+ * The run is long (two full searches plus a public-deck crawl, minutes in
+ * practice) and happens on a tab the user isn't looking at, so the origin
+ * tab gets told which step it's on as it goes -- see
+ * buildSuperPesquisaDecisionBody in super-pesquisa.js for where this lands
+ * on screen. Order matches handleStartSuperPesquisa's own flow; the last
+ * one is finished by the second tab's content script, not here.
+ */
+const SUPER_PESQUISA_ETAPAS = [
+  "abrindo a aba de pesquisa",
+  "montando a lista de descoberta com decks públicos",
+  "pesquisa de descoberta, sem restringir lojas",
+  "escolhendo a melhor combinação de lojas",
+  "pesquisa final, só com suas cartas nas lojas escolhidas",
+  "aplicando as economias e fechando a conta",
+];
+
+function superPesquisaProgresso(originTabId, etapa) {
+  superPesquisaLog(`Etapa ${etapa} de ${SUPER_PESQUISA_ETAPAS.length}: ${SUPER_PESQUISA_ETAPAS[etapa - 1]}`);
+  if (originTabId == null) return;
+  chrome.tabs
+    .sendMessage(originTabId, {
+      action: "superPesquisaProgresso",
+      etapa,
+      total: SUPER_PESQUISA_ETAPAS.length,
+      descricao: SUPER_PESQUISA_ETAPAS[etapa - 1],
+    })
+    .catch(() => {}); // aba de origem pode ter sido fechada ou navegada
+}
+
+/**
  * Reads two things from the page's own wizard state, fresh:
  *   - caracteristicas: the general idioma/extras/qualidade/estoque/pré-venda
  *     filter panel, so the second tab's searches replicate it exactly.
@@ -1929,10 +2005,12 @@ async function handleGetListaFiltros(tabId) {
       func: () => {
         if (typeof wizard === "undefined") return { caracteristicas: null, usouVersoesExatas: false };
         const cards = wizard.json?.cards ?? [];
-        const usouVersoesExatas = cards.some(
-          (c) => c.edicao || c.idioma || c.qualidade || c.sNumber || (Array.isArray(c.extras) && c.extras.length > 0),
-        );
-        return { caracteristicas: wizard.json?.caracteristicas ?? null, usouVersoesExatas };
+        const pinado = (c) =>
+          Boolean(c.edicao || c.idioma || c.qualidade || c.sNumber || (Array.isArray(c.extras) && c.extras.length > 0));
+        return {
+          caracteristicas: wizard.json?.caracteristicas ?? null,
+          usouVersoesExatas: cards.some(pinado),
+        };
       },
     });
     return results[0]?.result ?? { caracteristicas: null, usouVersoesExatas: false };
@@ -1970,6 +2048,51 @@ function cardNameFromLine(line) {
 /** Swaps just the leading quantity of a "qty name..." line, keeping the name and any exact-version "[...]" tag untouched. */
 function lineWithQty(line, qty) {
   return line.replace(/^\d+\s+/, `${qty} `);
+}
+
+function superPesquisaTetoDaLinha(line) {
+  const isBasic = SUPER_PESQUISA_BASIC_LANDS.some((nome) => nome.toLowerCase() === cardNameFromLine(line));
+  return isBasic ? SUPER_PESQUISA_MAX_QTY_BASIC : SUPER_PESQUISA_MAX_QTY_NORMAL;
+}
+
+/**
+ * Raises the user's own discovery lines toward their per-line ceiling only as
+ * far as SUPER_PESQUISA_DISCOVERY_TARGET_TOTAL_QTY has room for.
+ *
+ * Inflating quantities is what makes LigaMagic's own store picker reach past
+ * the two or three stores a small list settles into (a store holding a single
+ * copy can't cover a line asking for eight), but sending every line straight
+ * to its ceiling only fits while the list is small: at 8 per nonbasic line
+ * (40 per basic), a 100-card list asks for ~800 units on its own, twice the
+ * budget and past the point where the site's own search API starts timing out
+ * or erroring outright (see that constant).
+ *
+ * So the quantity isn't per-line at all, it's a shared floor: every line is
+ * raised to the same number, never below what the user actually wants and
+ * never above its own ceiling, and the floor climbs as high as the budget
+ * allows. A small list still reaches the ceiling exactly like before; a
+ * 100-card one lands on a smaller shared multiple instead of blowing through
+ * the budget. A list whose real quantities alone already exceed the budget is
+ * left at those real quantities -- asking for less than the user wants would
+ * make the discovery's own stock picture wrong.
+ */
+function superPesquisaLinhasDeDescoberta(targetLines) {
+  const tetos = targetLines.map(superPesquisaTetoDaLinha);
+  const reais = targetLines.map((line) => parseInt(line, 10) || 1);
+  const quantidades = (piso) => reais.map((real, i) => Math.min(tetos[i], Math.max(real, piso)));
+  const somar = (qtds) => qtds.reduce((soma, qtd) => soma + qtd, 0);
+
+  let piso = 1;
+  while (piso < SUPER_PESQUISA_MAX_QTY_BASIC && somar(quantidades(piso + 1)) <= SUPER_PESQUISA_DISCOVERY_TARGET_TOTAL_QTY) {
+    piso++;
+  }
+
+  const qtds = quantidades(piso);
+  return {
+    linhas: targetLines.map((line, i) => lineWithQty(line, qtds[i])),
+    totalQty: somar(qtds),
+    piso,
+  };
 }
 
 async function fetchRecentDeckIds(tabId, formatId, timeoutMs) {
@@ -2024,6 +2147,23 @@ async function fetchDeckLines(tabId, deckId, timeoutMs) {
  * exact same pages/markup a person browsing them manually would see; nothing
  * is created, edited, favorited, or otherwise written to any account.
  */
+/**
+ * Fisher-Yates shuffle -- used below so a repeated Super Pesquisa run can
+ * pick a different sample of the SAME already-fetched "recent decks" list
+ * instead of always the newest SUPER_PESQUISA_DECKS_PER_FORMAT ones. Zero
+ * extra requests: fetchRecentDeckIds already returns every deck id linked
+ * off that one page load (~40, confirmed live), and this only changes which
+ * of those already-in-hand ids get used, not how many pages get fetched.
+ */
+function shuffleArray(array) {
+  const copy = [...array];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
 async function pickPaddingDecks(tabId, neededCount, excludeNamesLower) {
   const padding = [];
   const seen = new Set(excludeNamesLower);
@@ -2033,7 +2173,7 @@ async function pickPaddingDecks(tabId, neededCount, excludeNamesLower) {
     const deckIds = await fetchRecentDeckIds(tabId, format.id, SUPER_PESQUISA_TAB_TIMEOUT_MS);
     superPesquisaLog(`${format.label}: ${deckIds.length} recent deck(s) found.`);
 
-    for (const deckId of deckIds.slice(0, SUPER_PESQUISA_DECKS_PER_FORMAT)) {
+    for (const deckId of shuffleArray(deckIds).slice(0, SUPER_PESQUISA_DECKS_PER_FORMAT)) {
       if (padding.length >= neededCount) break;
       const cards = await fetchDeckLines(tabId, deckId, SUPER_PESQUISA_TAB_TIMEOUT_MS);
       for (const { qty, name } of cards) {
@@ -2093,7 +2233,17 @@ async function waitAndDismissCardsFromStoragePopupIfAny(tabId, timeoutMs = 4_000
   return false;
 }
 
-/** Polls until the wizard's next step actually has a visible "Pesquisar" button — replaces an earlier fixed 800ms settle-time that a heavier, ~110-card list could outlast (confirmed live 2026-09-13: the button just wasn't there yet at that fixed checkpoint). */
+/**
+ * Polls until the wizard's next step actually has a visible search button —
+ * replaces an earlier fixed 800ms settle-time that a heavier, ~110-card list
+ * could outlast (confirmed live 2026-09-13: the button just wasn't there yet
+ * at that fixed checkpoint).
+ *
+ * Found by the site's own id (#btPesquisar), not by its label: the label is
+ * not a stable identifier (this extension itself adds a second line to it
+ * saying which store scope is selected, and "Pesquisar" is also the label of
+ * the custom-store bar's own button right there on the same page).
+ */
 async function waitForPesquisarStepReady(tabId, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -2101,10 +2251,10 @@ async function waitForPesquisarStepReady(tabId, timeoutMs) {
     try {
       const results = await chrome.scripting.executeScript({
         target: { tabId },
-        func: () =>
-          !![...document.querySelectorAll(".botao")].find(
-            (b) => b.textContent.trim() === "Pesquisar" && b.offsetParent !== null,
-          ),
+        func: () => {
+          const botao = document.getElementById("btPesquisar");
+          return !!botao && botao.offsetParent !== null;
+        },
       });
       ready = results[0]?.result ?? false;
     } catch {
@@ -2167,6 +2317,22 @@ async function submitSearchStep(tabId, scopedStoreIds) {
       },
     });
   } else {
+    // "Todas Lojas" has to be set explicitly, not inherited: LigaMagic
+    // remembers this radio per account across page loads, so a discovery
+    // pass that only assumed it would silently run inside the account's
+    // favourites instead of the whole marketplace -- which is the exact
+    // opposite of what a discovery pass is for. Measured live (2026-09-16):
+    // the same discovery list found 3 stores inherited vs. 50 forced.
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        const radio = document.querySelector('input[name="txt_tipo_filtro"][value="1"]');
+        if (radio && !radio.checked) {
+          radio.checked = true;
+          radio.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+      },
+    });
     await chrome.scripting.executeScript({
       target: { tabId },
       world: "MAIN",
@@ -2190,11 +2356,34 @@ async function submitSearchStep(tabId, scopedStoreIds) {
   await chrome.scripting.executeScript({
     target: { tabId },
     func: () => {
-      const pesquisar = [...document.querySelectorAll(".botao")].find(
-        (b) => b.textContent.trim() === "Pesquisar" && b.offsetParent !== null,
-      );
-      pesquisar?.click();
+      // Pelo id do próprio site, não pelo rótulo -- ver waitForPesquisarStepReady.
+      document.getElementById("btPesquisar")?.click();
     },
+  });
+}
+
+/** Reads which "Tipo de Busca" radio (txt_tipo_filtro) is currently selected -- LigaMagic remembers this choice across page loads for the account, so a scoped search that has to force it to "2" (Minhas Favoritas + Buscar Lojas, see submitSearchStep) needs to restore whatever was selected before, or it silently overwrites the account's own remembered default from then on. */
+async function readTipoFiltroAtual(tabId) {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: () => document.querySelector('input[name="txt_tipo_filtro"]:checked')?.value ?? null,
+  });
+  return results[0]?.result ?? null;
+}
+
+/** Counterpart to readTipoFiltroAtual -- puts the radio back (firing the same "change" event submitSearchStep's own forcing relies on) once a search is over, so only that one search ever moved it, never the account's remembered default. */
+async function restaurarTipoFiltro(tabId, valor) {
+  if (valor == null) return;
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    func: (valorRestaurar) => {
+      const radio = document.querySelector(`input[name="txt_tipo_filtro"][value="${valorRestaurar}"]`);
+      if (radio && !radio.checked) {
+        radio.checked = true;
+        radio.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    },
+    args: [valor],
   });
 }
 
@@ -2272,48 +2461,343 @@ async function waitForSearchOutcome(tabId, timeoutMs) {
  */
 async function driveSuperPesquisaSearch(tabId, initialLines, { filtros, scopedStoreIds } = {}) {
   let lines = [...initialLines];
+  // LigaMagic remembers the "Tipo de Busca" radio (Todas Lojas vs. Minhas
+  // Favoritas) per account across page loads, and both halves of a Super
+  // Pesquisa force it: discovery to "Todas Lojas", the scoped pass to
+  // "Minhas Favoritas". Whatever the user had picked is captured once, on
+  // the first attempt that gets far enough for the radio to exist, and put
+  // back in the finally below -- on every exit, not just the successful one.
+  // Restoring only on success (which is what this used to do) meant any
+  // failed scoped search left the account stuck on "Minhas Favoritas"
+  // permanently, and every later discovery pass inherited it.
+  let tipoFiltroAntes = null;
+  let capturouTipoFiltro = false;
 
-  for (let attempt = 0; attempt <= SUPER_PESQUISA_MAX_RETRIES; attempt++) {
-    await chrome.tabs.update(tabId, { url: "https://www.ligamagic.com.br/?view=cards/lista" });
-    if (!(await waitForTabComplete(tabId, SUPER_PESQUISA_TAB_TIMEOUT_MS))) {
-      return { ok: false, error: "A aba não terminou de carregar." };
-    }
-
-    await applyListaFiltros(tabId, filtros);
-
-    await waitAndDismissCardsFromStoragePopupIfAny(tabId);
-    await fillCardListStep(tabId, lines.join("\n"));
-    if (!(await waitForPesquisarStepReady(tabId, SUPER_PESQUISA_VALIDATE_TIMEOUT_MS))) {
-      return { ok: false, error: "A etapa de pesquisa não ficou pronta a tempo." };
-    }
-    await submitSearchStep(tabId, scopedStoreIds);
-
-    const outcome = await waitForSearchOutcome(tabId, SUPER_PESQUISA_SEARCH_TIMEOUT_MS);
-    if (outcome.ok) {
-      // "#btn-finalizar" rendering only means results exist, not that every
-      // assigned store's shipping fee has finished calculating -- confirmed
-      // live (2026-09-13) that reading resultado right away can catch a
-      // store's frete as still null, which any total computed from it would
-      // silently treat as zero, understating the real cost and reporting a
-      // false "savings" that doesn't survive a moment later once frete
-      // settles.
-      await waitForFreteCalculado(tabId, SUPER_PESQUISA_SEARCH_TIMEOUT_MS);
-      const resultado = await handleGetListaResultado(tabId);
-      return { ok: true, resultado };
-    }
-
-    if (outcome.notFoundBlob && attempt < SUPER_PESQUISA_MAX_RETRIES) {
-      const before = lines.length;
-      lines = lines.filter((line) => !outcome.notFoundBlob.includes(cardNameFromLine(line)));
-      if (lines.length === before) {
-        return { ok: false, error: "Cards não reconhecidos pela pesquisa, mas não foi possível identificar quais." };
+  try {
+    for (let attempt = 0; attempt <= SUPER_PESQUISA_MAX_RETRIES; attempt++) {
+      await chrome.tabs.update(tabId, { url: "https://www.ligamagic.com.br/?view=cards/lista" });
+      if (!(await waitForTabComplete(tabId, SUPER_PESQUISA_TAB_TIMEOUT_MS))) {
+        return { ok: false, error: "A aba não terminou de carregar." };
       }
-      superPesquisaLog(`Pesquisa rejeitou ${before - lines.length} card(s) não reconhecido(s), tentando de novo sem eles.`);
-      continue;
+
+      await applyListaFiltros(tabId, filtros);
+
+      await waitAndDismissCardsFromStoragePopupIfAny(tabId);
+      await fillCardListStep(tabId, lines.join("\n"));
+      if (!(await waitForPesquisarStepReady(tabId, SUPER_PESQUISA_VALIDATE_TIMEOUT_MS))) {
+        return { ok: false, error: "A etapa de pesquisa não ficou pronta a tempo." };
+      }
+
+      if (!capturouTipoFiltro) {
+        tipoFiltroAntes = await readTipoFiltroAtual(tabId);
+        capturouTipoFiltro = true;
+      }
+      await submitSearchStep(tabId, scopedStoreIds);
+
+      const outcome = await waitForSearchOutcome(tabId, SUPER_PESQUISA_SEARCH_TIMEOUT_MS);
+      if (outcome.ok) {
+        // "#btn-finalizar" rendering only means results exist, not that every
+        // assigned store's shipping fee has finished calculating -- confirmed
+        // live (2026-09-13) that reading resultado right away can catch a
+        // store's frete as still null, which any total computed from it would
+        // silently treat as zero, understating the real cost and reporting a
+        // false "savings" that doesn't survive a moment later once frete
+        // settles.
+        await waitForFreteCalculado(tabId, SUPER_PESQUISA_SEARCH_TIMEOUT_MS);
+        const resultado = await handleGetListaResultado(tabId);
+        return { ok: true, resultado };
+      }
+
+      if (outcome.notFoundBlob && attempt < SUPER_PESQUISA_MAX_RETRIES) {
+        const before = lines.length;
+        lines = lines.filter((line) => !outcome.notFoundBlob.includes(cardNameFromLine(line)));
+        if (lines.length === before) {
+          return { ok: false, error: "Cards não reconhecidos pela pesquisa, mas não foi possível identificar quais." };
+        }
+        superPesquisaLog(`Pesquisa rejeitou ${before - lines.length} card(s) não reconhecido(s), tentando de novo sem eles.`);
+        continue;
+      }
+      return { ok: false, error: outcome.error ?? "Erro desconhecido na pesquisa." };
     }
-    return { ok: false, error: outcome.error ?? "Erro desconhecido na pesquisa." };
+    return { ok: false, error: "Excedeu o número de tentativas." };
+  } finally {
+    if (capturouTipoFiltro) {
+      // Never let a restore failure (tab already closed, page navigated
+      // away) replace whatever this function was actually returning.
+      try {
+        await restaurarTipoFiltro(tabId, tipoFiltroAntes);
+      } catch {
+        // nothing left to restore on -- the tab is gone
+      }
+    }
   }
-  return { ok: false, error: "Excedeu o número de tentativas." };
+}
+
+// ── Plano de compra a partir do mapa de ofertas da descoberta ────────────────
+/**
+ * The discovery pass doesn't just reveal WHICH stores exist -- its result
+ * carries, for every store it surfaced, that store's own offers (price and
+ * stock) for every searched line, including the ones it wasn't assigned to
+ * sell. That is a real (card × store) price map, and throwing it away to
+ * re-ask LigaMagic to optimize over all of those stores at once leaves money
+ * on the table: measured live (2026-09-16) on a 22-card deck, the site's own
+ * answer over the 50 discovered stores was R$ 834,12 → R$ 820,69, while
+ * choosing the stores from this same map first and only then searching came
+ * out at R$ 803,00.
+ *
+ * The reason the narrower search wins is shipping. LigaMagic already picks
+ * the cheapest store per card within whatever pool it's given (confirmed
+ * live: card subtotals match to the cent), so there is nothing to gain on
+ * prices -- but each store added to the pool is another shipping fee it may
+ * decide to pay. Deciding the pool here, with the fees counted in, is the
+ * whole gain.
+ */
+const SUPER_PESQUISA_PLANO_TENTATIVAS = 150;
+const SUPER_PESQUISA_PLANO_OFERTAS_POR_CARTA = 8;
+
+/**
+ * The (card × store) offer map for the user's REAL cards only -- the
+ * discovery list also carried padding nobody is buying, and those lines'
+ * offers would drag the plan toward stores that are only good for cards
+ * that were never wanted.
+ *
+ * Returns null when any wanted card has no offer at all in the result: a
+ * plan built without it would scope the final search to stores that can't
+ * supply it, which is worse than not planning. Callers fall back to the
+ * whole discovered pool in that case.
+ */
+function mapaDeOfertasDaDescoberta(resultado, targetLines) {
+  // Acentos fora dos dois lados: o resultado do site devolve o nome em
+  // português já sem eles ("Custodia de Tamiyo"), e a lista de onde saem as
+  // targetLines nem sempre passou pelo mesmo caminho -- casar as duas formas
+  // cruas perderia carta por um cedilha.
+  const chaveNome = (nome) =>
+    (nome ?? "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim()
+      .toLowerCase();
+
+  const desejadas = new Map(); // nome normalizado -> índice da carta
+  const cartas = [];
+  for (const line of targetLines) {
+    const nome = chaveNome(cardNameFromLine(line));
+    if (desejadas.has(nome)) continue;
+    desejadas.set(nome, cartas.length);
+    cartas.push({ nome, qtd: parseInt(line, 10) || 1, ofertas: [] });
+  }
+
+  const lojas = [];
+  const indicePorBloco = new Map();
+  for (const bloco of Object.values(resultado ?? {})) {
+    if (!bloco || bloco.loja == null) continue;
+    // Uma loja que o site listou mas cujo frete ele nunca calculou não pode
+    // entrar no plano -- sem o frete não dá pra comparar o custo de abri-la.
+    // Só ela sai, não o plano inteiro: se ela era a única fonte de alguma
+    // carta, essa carta fica sem oferta e o plano cai fora logo abaixo.
+    if (typeof bloco.frete !== "number" || Number.isNaN(bloco.frete)) continue;
+    const j = lojas.length;
+    lojas.push({ id: String(bloco.loja), nome: bloco.nomeLoja, frete: Math.round(bloco.frete * 100) });
+    indicePorBloco.set(bloco, j);
+
+    for (const carta of bloco.cartas ?? []) {
+      if (!carta) continue;
+      const estoque = carta.iQuant ?? 0;
+      if (estoque <= 0) continue;
+      const alvo = desejadas.get(chaveNome(carta.nomeInglesSA)) ?? desejadas.get(chaveNome(carta.nomePortuguesSA));
+      if (alvo === undefined) continue; // carta de preenchimento
+      cartas[alvo].ofertas.push([j, Math.round(carta.preco * 100), estoque]);
+    }
+  }
+
+  for (const carta of cartas) {
+    if (carta.ofertas.length === 0) return null;
+    carta.ofertas.sort((a, b) => a[1] - b[1]);
+  }
+  return { cartas, lojas };
+}
+
+/**
+ * Which stores to actually buy from. Choosing the set is facility location
+ * (each store's shipping is a fixed cost paid only if it's used), so it's
+ * NP-hard and an exact search is out of the question here -- a branch and
+ * bound over the real 47-store map took minutes. What IS cheap is that,
+ * once the set is fixed, the best split is just filling each card from the
+ * cheapest offers inside it: the cards never compete for anything (stock is
+ * per offer, and no store has an overall item limit), so there is no flow
+ * problem to solve, and a whole set can be priced in one pass over the
+ * offers.
+ *
+ * That makes local search the right tool: a greedy construction, then
+ * add/drop/swap until nothing improves, repeated from random starts.
+ * Validated against brute force on 38 random sub-maps of the real data --
+ * identical answer on all 38 -- and against the two full maps whose optimum
+ * was proven separately, also identical, in about 100ms.
+ *
+ * Cards with no reachable offer are priced at `penalidade` instead of
+ * rejecting the set outright, so the greedy construction can still compare
+ * two incomplete sets and make progress; anything still incomplete at the
+ * end is reported as no plan.
+ */
+function escolherLojasDoPlano(cartas, fretes, tentativas = SUPER_PESQUISA_PLANO_TENTATIVAS) {
+  const aberta = new Uint8Array(fretes.length);
+  let semente = 1;
+  const rand = () => ((semente = (semente * 1664525 + 1013904223) >>> 0) / 4294967296);
+
+  let penalidade = 0;
+  for (const carta of cartas) penalidade += (carta.ofertas[carta.ofertas.length - 1]?.[1] ?? 0) * carta.qtd;
+  penalidade = penalidade * 4 + 1;
+
+  const custo = (conj) => {
+    aberta.fill(0);
+    let total = 0;
+    for (const j of conj) {
+      aberta[j] = 1;
+      total += fretes[j];
+    }
+    for (const carta of cartas) {
+      let falta = carta.qtd;
+      for (const [loja, preco, estoque] of carta.ofertas) {
+        if (!aberta[loja]) continue;
+        const usar = estoque < falta ? estoque : falta;
+        total += usar * preco;
+        falta -= usar;
+        if (falta === 0) break;
+      }
+      if (falta > 0) total += penalidade * falta;
+    }
+    return total;
+  };
+
+  // Só as lojas que estão entre as mais baratas de alguma carta: nenhuma
+  // outra entra num conjunto ótimo, e cortá-las encolhe muito a vizinhança.
+  const candidatasSet = new Set();
+  for (const carta of cartas) {
+    let vistas = 0;
+    let ultima = -1;
+    for (const [loja] of carta.ofertas) {
+      if (loja === ultima) continue;
+      ultima = loja;
+      candidatasSet.add(loja);
+      if (++vistas >= SUPER_PESQUISA_PLANO_OFERTAS_POR_CARTA) break;
+    }
+  }
+  const candidatas = [...candidatasSet];
+
+  const buscaLocal = (inicial) => {
+    const conj = new Set(inicial);
+    let melhor = custo([...conj]);
+    for (let passe = 0; passe < 40; passe++) {
+      let mudou = false;
+      for (const j of candidatas) {
+        const tinha = conj.has(j);
+        if (tinha) conj.delete(j);
+        else conj.add(j);
+        const c = custo([...conj]);
+        if (c < melhor) {
+          melhor = c;
+          mudou = true;
+        } else if (tinha) conj.add(j);
+        else conj.delete(j);
+      }
+      for (const dentro of [...conj]) {
+        let trocou = false;
+        for (const fora of candidatas) {
+          if (conj.has(fora)) continue;
+          conj.delete(dentro);
+          conj.add(fora);
+          const c = custo([...conj]);
+          if (c < melhor) {
+            melhor = c;
+            mudou = true;
+            trocou = true;
+            break;
+          }
+          conj.add(dentro);
+          conj.delete(fora);
+        }
+        if (trocou) break;
+      }
+      if (!mudou) break;
+    }
+    return { custo: melhor, conj };
+  };
+
+  const guloso = new Set();
+  let atual = custo([]);
+  for (;;) {
+    let passo = null;
+    for (const j of candidatas) {
+      if (guloso.has(j)) continue;
+      guloso.add(j);
+      const c = custo([...guloso]);
+      guloso.delete(j);
+      if (passo === null || c < passo.c) passo = { j, c };
+    }
+    if (!passo || passo.c >= atual) break;
+    guloso.add(passo.j);
+    atual = passo.c;
+  }
+
+  let melhor = buscaLocal(guloso);
+  for (let t = 0; t < tentativas; t++) {
+    const inicial = new Set();
+    const alvo = 2 + Math.floor(rand() * 8);
+    while (inicial.size < alvo && inicial.size < candidatas.length) {
+      inicial.add(candidatas[Math.floor(rand() * candidatas.length)]);
+    }
+    const r = buscaLocal(inicial);
+    if (r.custo < melhor.custo) melhor = r;
+  }
+  if (melhor.custo >= penalidade) return null; // sobrou carta sem loja
+
+  // Aloca de verdade: uma loja aberta da qual nada acaba sendo comprado não
+  // pode ir pra busca final, ou o site ganha a chance de reabri-la.
+  aberta.fill(0);
+  for (const j of melhor.conj) aberta[j] = 1;
+  const usadas = new Set();
+  let cards = 0;
+  for (const carta of cartas) {
+    let falta = carta.qtd;
+    for (const [loja, preco, estoque] of carta.ofertas) {
+      if (!aberta[loja]) continue;
+      const usar = estoque < falta ? estoque : falta;
+      if (usar <= 0) continue;
+      usadas.add(loja);
+      cards += usar * preco;
+      falta -= usar;
+      if (falta === 0) break;
+    }
+  }
+  const lojas = [...usadas];
+  const frete = lojas.reduce((soma, j) => soma + fretes[j], 0);
+  return { lojas, cards, frete, total: cards + frete };
+}
+
+/**
+ * The stores the final search should be restricted to, chosen from the
+ * discovery's own offer map rather than "all of them". Returns null when the
+ * map can't be built or no viable set exists, so the caller keeps the old
+ * behaviour of searching the whole discovered pool.
+ */
+function planejarLojasDaCompra(resultado, targetLines) {
+  const mapa = mapaDeOfertasDaDescoberta(resultado, targetLines);
+  if (!mapa) return null;
+  const escolha = escolherLojasDoPlano(
+    mapa.cartas,
+    mapa.lojas.map((l) => l.frete),
+  );
+  if (!escolha || escolha.lojas.length === 0) return null;
+  return {
+    storeIds: escolha.lojas.map((j) => mapa.lojas[j].id),
+    nomes: escolha.lojas.map((j) => mapa.lojas[j].nome),
+    // Estimativa, não promessa: o frete de cada loja muda conforme o que se
+    // compra nela (peso e valor declarado), e os fretes deste mapa vieram da
+    // descoberta, onde cada loja carregava uma cesta bem maior. Medido ao
+    // vivo (2026-09-16): os cards batem no centavo, os fretes vieram ~4%
+    // acima. O número que o usuário vê é sempre o da busca final, nunca este.
+    totalEstimado: escolha.total / 100,
+  };
 }
 
 /** Every distinct LigaMagic store ID present in a resultado -- `bloco.loja` is the numeric store ID, same one `txt_lojafav[]` checkboxes use. */
@@ -2325,20 +2809,32 @@ function harvestStoreIds(resultado) {
   return [...ids];
 }
 
+/** Every distinct store (id + display name) present in a resultado -- unlike harvestStoreIds above, this also keeps `bloco.nomeLoja` for display, e.g. the "compre nas lojas X, Y, Z" line in the Super Pesquisa decision prompt. */
+function harvestStores(resultado) {
+  const byId = new Map();
+  for (const bloco of Object.values(resultado ?? {})) {
+    if (bloco?.loja != null) byId.set(String(bloco.loja), bloco.nomeLoja ?? String(bloco.loja));
+  }
+  return [...byId.entries()].map(([id, nome]) => ({ id, nome }));
+}
+
 /**
- * Maps the second tab's own id to the origin tab that started it, purely so
- * handleSuperPesquisaFinalized (triggered by a message FROM that second tab,
- * once it's done applying its own reorganizações) knows which tab to relay
- * the final result to — the async closure inside handleStartSuperPesquisa
- * isn't in scope by the time that separate message arrives. Cleared on
- * every path out of a run (success relay, or the catch block below), so
- * this never accumulates beyond however many Super Pesquisa runs are
- * genuinely in flight at once.
+ * Per-second-tab context for an in-flight (or already-finished) Super
+ * Pesquisa run: the origin tab to report back to, and the exact
+ * real-quantity search (targetLines/filtros) phase 2 used. Once phase 2 and
+ * its reorganização pass land, storeIds/totalComReorgDepois get filled in
+ * too (see handleSuperPesquisaReorgApplied) so a later "Sim" click (see
+ * handleSuperPesquisaApplyToOrigin) can replay that exact scoped search on
+ * the origin tab without redoing the discovery pass. Deliberately NOT
+ * cleared just because the decision prompt was dismissed ("Não") — the
+ * whole point of keeping it around is letting the user reopen the same
+ * result later (via the Análise de Economia modal) without paying for
+ * another search. Cleared only on outright failure (the catch block below).
  */
-const superPesquisaOriginByTabId = new Map();
+const superPesquisaContextByTabId = new Map();
 
 async function handleStartSuperPesquisa(payload, originTabId) {
-  const { targetLines, filtros, baseline, baselineComReorg } = payload ?? {};
+  const { targetLines, filtros, baselineComReorg } = payload ?? {};
   if (!Array.isArray(targetLines) || targetLines.length === 0) return;
 
   const reportBack = (message) => {
@@ -2348,8 +2844,12 @@ async function handleStartSuperPesquisa(payload, originTabId) {
 
   let tab;
   try {
-    tab = await chrome.tabs.create({ url: "https://www.ligamagic.com.br/?view=cards/lista", active: true });
-    if (originTabId != null) superPesquisaOriginByTabId.set(tab.id, originTabId);
+    superPesquisaProgresso(originTabId, 1);
+    // Backgrounded on purpose: this tab exists to run a search, not to be
+    // looked at -- see "superPesquisaFocusTab" for the one path (the user
+    // explicitly asking for it) that ever brings it to the front.
+    tab = await chrome.tabs.create({ url: "https://www.ligamagic.com.br/?view=cards/lista", active: false });
+    superPesquisaContextByTabId.set(tab.id, { originTabId, targetLines, filtros, baselineComReorg });
     if (!(await waitForTabComplete(tab.id, SUPER_PESQUISA_TAB_TIMEOUT_MS))) {
       throw new Error("A aba não terminou de carregar.");
     }
@@ -2370,11 +2870,9 @@ async function handleStartSuperPesquisa(payload, originTabId) {
     // including one that never appeared at all in the small search.
     const usedNames = new Set(targetLines.map(cardNameFromLine));
 
-    const discoveryTargetLines = targetLines.map((line) => {
-      const isBasic = SUPER_PESQUISA_BASIC_LANDS.some((nome) => nome.toLowerCase() === cardNameFromLine(line));
-      return lineWithQty(line, isBasic ? SUPER_PESQUISA_MAX_QTY_BASIC : SUPER_PESQUISA_MAX_QTY_NORMAL);
-    });
-    const realTotalQty = discoveryTargetLines.reduce((sum, line) => sum + (parseInt(line, 10) || 0), 0);
+    const alvo = superPesquisaLinhasDeDescoberta(targetLines);
+    const discoveryTargetLines = alvo.linhas;
+    const realTotalQty = alvo.totalQty;
 
     // Padding always comes from public decklists (never basics), so it
     // always uses the nonbasic ceiling -- however many lines of it fit
@@ -2385,78 +2883,187 @@ async function handleStartSuperPesquisa(payload, originTabId) {
     const remainingLineSlots = Math.max(0, SUPER_PESQUISA_MAX_CARDS - targetLines.length);
     const neededPadding = Math.min(remainingLineSlots, Math.floor(remainingQtyBudget / SUPER_PESQUISA_MAX_QTY_NORMAL));
 
+    superPesquisaProgresso(originTabId, 2);
     const rawPadding = neededPadding > 0 ? await pickPaddingDecks(tab.id, neededPadding, usedNames) : [];
     const paddingLines = rawPadding.map((line) => lineWithQty(line, SUPER_PESQUISA_MAX_QTY_NORMAL));
 
     const discoveryLines = [...discoveryTargetLines, ...paddingLines];
     const totalQty = realTotalQty + rawPadding.length * SUPER_PESQUISA_MAX_QTY_NORMAL;
     superPesquisaLog(
-      `Descoberta: ${targetLines.length} carta(s) do usuário + ${rawPadding.length} de preenchimento ` +
+      `Descoberta: ${targetLines.length} carta(s) do usuário (até ${alvo.piso} un. por linha) + ` +
+        `${rawPadding.length} de preenchimento ` +
         `(${discoveryLines.length}/${SUPER_PESQUISA_MAX_CARDS} linhas, ${totalQty}/` +
         `${SUPER_PESQUISA_DISCOVERY_TARGET_TOTAL_QTY} unidades no total).`,
     );
+    if (totalQty > SUPER_PESQUISA_DISCOVERY_TARGET_TOTAL_QTY) {
+      superPesquisaLog(
+        `A lista do usuário sozinha já pede ${realTotalQty} unidades, acima do alvo de ` +
+          `${SUPER_PESQUISA_DISCOVERY_TARGET_TOTAL_QTY} — mantidas as quantidades reais, sem preenchimento.`,
+      );
+    }
 
+    superPesquisaProgresso(originTabId, 3);
     const discovery = await driveSuperPesquisaSearch(tab.id, discoveryLines, { filtros });
     if (!discovery.ok) throw new Error(discovery.error ?? "Falha na pesquisa de descoberta.");
 
     // Phase 2 — the real search: just the user's real cards, at their real
-    // quantities, no padding, scoped to exactly the stores phase 1 surfaced
-    // via the same custom-store-search mechanism the "Buscar Lojas" bar
-    // already uses (handleInstallSearchOverride/handleSyncCustomStoreIds).
-    // That keeps the final numbers (price, frete) real and un-inflated by
-    // padding, and lets LigaMagic's own optimizer -- not a hand-rolled one --
-    // work out the actual best split within that pool. This can, in
-    // principle, miss a genuinely good store that never showed up in the
+    // quantities, no padding, scoped via the same custom-store-search
+    // mechanism the "Buscar Lojas" bar already uses
+    // (handleInstallSearchOverride/handleSyncCustomStoreIds), so the final
+    // numbers (price, frete) are real and un-inflated by padding.
+    //
+    // Scoped to the stores a plan built from the discovery's own offer map
+    // picks (see planejarLojasDaCompra), not to every store the discovery
+    // surfaced. Handing LigaMagic the whole pool means paying for whichever
+    // stores IT decides to spread the purchase over, and each one is another
+    // shipping fee; picking the pool here, with the fees counted in, is
+    // where the saving comes from. When no plan can be built (a wanted card
+    // has no offer in the map, or some store's frete hadn't settled), this
+    // falls back to the old behaviour of searching the whole pool.
+    //
+    // This can still miss a genuinely good store that never showed up in the
     // padding-driven discovery pass; that tradeoff is deliberate here,
     // favoring one lean, real-quantity search plus a small, targeted one
     // over repeatedly poking at an already-placed result one card at a time,
     // which forces LigaMagic's own frete recalculation on every single edit.
+    superPesquisaProgresso(originTabId, 4);
     const storeIds = harvestStoreIds(discovery.resultado);
-    superPesquisaLog(`Descoberta encontrou ${storeIds.length} loja(s) -- refazendo a pesquisa só com as cartas reais, restrita a elas.`);
+    const plano = planejarLojasDaCompra(discovery.resultado, targetLines);
+    if (plano) {
+      superPesquisaLog(
+        `Descoberta encontrou ${storeIds.length} loja(s); o plano escolheu ${plano.storeIds.length} ` +
+          `(${plano.nomes.join(", ")}), estimando R$ ${plano.totalEstimado.toFixed(2)}.`,
+      );
+    } else {
+      superPesquisaLog(
+        `Descoberta encontrou ${storeIds.length} loja(s); sem plano viável a partir do mapa de ofertas, ` +
+          `refazendo a pesquisa restrita a todas elas.`,
+      );
+    }
 
-    const final = await driveSuperPesquisaSearch(tab.id, targetLines, { filtros, scopedStoreIds: storeIds });
+    superPesquisaProgresso(originTabId, 5);
+    let final = await driveSuperPesquisaSearch(tab.id, targetLines, {
+      filtros,
+      scopedStoreIds: plano ? plano.storeIds : storeIds,
+    });
+    if (!final.ok && plano) {
+      // O plano sai de um retrato do mercado que pode ter envelhecido entre
+      // as duas buscas (estoque acabou, loja saiu do ar). Em vez de desistir,
+      // repete do jeito antigo, com todas as lojas da descoberta.
+      superPesquisaLog(`Busca restrita ao plano falhou (${final.error}) -- repetindo com todas as lojas da descoberta.`);
+      final = await driveSuperPesquisaSearch(tab.id, targetLines, { filtros, scopedStoreIds: storeIds });
+    }
     if (!final.ok) throw new Error(final.error ?? "Falha na pesquisa final.");
 
+    superPesquisaProgresso(originTabId, 6);
     superPesquisaLog("Pesquisa concluída — pedindo pra própria aba aplicar reorganização.");
     // From here on, the second tab's own content script (super-pesquisa.js,
     // injected automatically like on any other ligamagic.com.br page) takes
     // over: applying every viable "economia por reorganização" for real is a
     // UI/DOM concern, not something this service worker can or should do
-    // directly. It reports back via "superPesquisaFinalized", handled below.
-    await chrome.tabs.sendMessage(tab.id, {
-      action: "superPesquisaFinalizeOnThisTab",
-      baseline,
-      baselineComReorg,
-    });
+    // directly. It reports back via "superPesquisaReorgApplied", handled
+    // below.
+    await chrome.tabs.sendMessage(tab.id, { action: "superPesquisaApplyReorgAndReport", context: "discovery" });
   } catch (err) {
     superPesquisaLog("Falhou —", err.message);
-    if (tab?.id != null) superPesquisaOriginByTabId.delete(tab.id);
+    if (tab?.id != null) superPesquisaContextByTabId.delete(tab.id);
     reportBack({ ok: false, error: err.message });
   }
 }
 
-/** Relays the second tab's own final numbers (see the "superPesquisaFinalizeOnThisTab" message above) back to whichever tab actually started this run. */
-function handleSuperPesquisaFinalized(request, secondTabId) {
-  if (secondTabId == null) return;
-  const originTabId = superPesquisaOriginByTabId.get(secondTabId);
-  superPesquisaOriginByTabId.delete(secondTabId);
-  if (originTabId == null) return;
 
-  const { baseline, baselineComReorg, totalSemReorgDepois, totalComReorgDepois } = request;
+
+/**
+ * A tab (the second, backgrounded one after its own phase 2 -- context
+ * "discovery" -- or the origin tab right after a "Sim" replay -- context
+ * "applyToOrigin") just finished applying every viable reorganização for
+ * real. This re-reads that same tab's now-final resultado itself
+ * (handleGetListaResultado) to harvest the real store list a purchase there
+ * would use (post-reorg closures included) -- the content script only ever
+ * reports the money total, never the store list, since this file already
+ * has the page-reading primitive for that.
+ *
+ * "discovery" relays a decision prompt to the run's origin tab (looked up
+ * via superPesquisaContextByTabId, keyed by this tab's own id) as
+ * "superPesquisaResult"; "applyToOrigin" instead confirms the change back to
+ * this SAME tab as "superPesquisaAppliedHere", since by then the user is
+ * already looking at it.
+ */
+async function handleSuperPesquisaReorgApplied(request, senderTabId) {
+  if (senderTabId == null) return;
+  const { context, totalComReorgDepois } = request;
+  const resultado = await handleGetListaResultado(senderTabId);
+  const lojas = harvestStores(resultado);
+
+  if (context === "applyToOrigin") {
+    chrome.tabs
+      .sendMessage(senderTabId, { action: "superPesquisaAppliedHere", ok: true, totalComReorgDepois, lojas })
+      .catch(() => {});
+    return;
+  }
+
+  const ctx = superPesquisaContextByTabId.get(senderTabId);
+  if (!ctx) return;
+  ctx.storeIds = lojas.map((l) => l.id);
+  ctx.totalComReorgDepois = totalComReorgDepois;
+
+  const economia = (ctx.baselineComReorg ?? 0) - totalComReorgDepois;
   superPesquisaLog(
-    `Concluído: base R$ ${(baselineComReorg ?? baseline ?? 0).toFixed(2)} -> ` +
-      `R$ ${(totalComReorgDepois ?? totalSemReorgDepois ?? 0).toFixed(2)} (ambos com reorganização já aplicada).`,
+    `Concluído: base R$ ${(ctx.baselineComReorg ?? 0).toFixed(2)} -> R$ ${totalComReorgDepois.toFixed(2)} ` +
+      `(economia R$ ${economia.toFixed(2)}, ${lojas.length} loja(s)).`,
   );
-  chrome.tabs
-    .sendMessage(originTabId, {
-      action: "superPesquisaResult",
-      ok: true,
-      baseline,
-      baselineComReorg,
-      totalSemReorgDepois,
-      totalComReorgDepois,
-    })
-    .catch(() => {});
+  if (ctx.originTabId != null) {
+    chrome.tabs
+      .sendMessage(ctx.originTabId, {
+        action: "superPesquisaResult",
+        ok: true,
+        secondTabId: senderTabId,
+        totalComReorgDepois,
+        economia,
+        lojas,
+      })
+      .catch(() => {});
+  }
+}
+
+/**
+ * The user clicked "Sim" on the decision prompt: replays the exact scoped
+ * search a Super Pesquisa run already found savings in (cached
+ * targetLines/filtros/storeIds from superPesquisaContextByTabId, keyed by
+ * the second tab's own id) directly on the tab the user is currently
+ * looking at, instead of redoing the discovery pass. Reports back to that
+ * SAME (origin) tab once done -- see handleSuperPesquisaReorgApplied's
+ * "applyToOrigin" branch.
+ */
+async function handleSuperPesquisaApplyToOrigin(secondTabId, originTabId) {
+  if (originTabId == null) return;
+  const ctx = secondTabId != null ? superPesquisaContextByTabId.get(secondTabId) : null;
+  if (!ctx?.storeIds) {
+    chrome.tabs
+      .sendMessage(originTabId, {
+        action: "superPesquisaAppliedHere",
+        ok: false,
+        error: "O resultado da Super Pesquisa não está mais disponível.",
+      })
+      .catch(() => {});
+    return;
+  }
+  try {
+    const result = await driveSuperPesquisaSearch(originTabId, ctx.targetLines, {
+      filtros: ctx.filtros,
+      scopedStoreIds: ctx.storeIds,
+    });
+    if (!result.ok) throw new Error(result.error ?? "Falha ao repetir a pesquisa nesta aba.");
+    await chrome.tabs.sendMessage(originTabId, { action: "superPesquisaApplyReorgAndReport", context: "applyToOrigin" });
+  } catch (err) {
+    chrome.tabs.sendMessage(originTabId, { action: "superPesquisaAppliedHere", ok: false, error: err.message }).catch(() => {});
+  }
+}
+
+/** The user clicked "Sim numa nova aba": brings the already-finished second tab to the front instead of redoing its search a third time -- it already holds the exact scoped, reorganização-applied result. */
+function handleSuperPesquisaFocusTab(secondTabId) {
+  if (secondTabId == null) return;
+  chrome.tabs.update(secondTabId, { active: true }).catch(() => {});
 }
 
 // ── Storage ────────────────────────────────────────────────────────────────────────
@@ -2489,8 +3096,8 @@ const DEFAULT_SETTINGS = {
   addLoadDefaultsButton: true, // whether the "Carregar filtro padrão" button is injected into Compra por Lista
   rememberListaFilters: false, // reapply the last manual filter selection on load, instead of the configured defaults
   addCopyListaButton: true, // whether the "Copiar Lista de Compras" button is injected into Compra por Lista results
-  addAnaliseEconomia: true, // whether the "Análise de Economia" button is injected into Compra por Lista results
-  addSuperPesquisa: true, // whether the "Super Pesquisa" button is injected into Compra por Lista results
+  addAnaliseEconomia: true, // whether the "Análise de Economia" button (whose modal also hosts the "Super Pesquisa" button) is injected into Compra por Lista results
+  addMinPriceColumn: true, // whether the "Preço Mínimo" column and its "Carregar valores mínimos" button/summary rows are added to Compra por Lista results
   addFreteCaroAlert: true, // whether an expensive store's shipping fee is highlighted on Compra por Lista results
   freteCaroLimiar: 35, // shipping fee (R$) above which a store is flagged as expensive, both by addFreteCaroAlert and inside the Análise de Economia modal
   // Cached result of the last economy analysis, keyed by a cheap fingerprint

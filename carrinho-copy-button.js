@@ -103,10 +103,9 @@ function readCartRow(row) {
   };
 }
 
-// Same "mpuser.getStore(<id>)" onclick the store title carries everywhere
-// else on the site (see LIGAMAGIC-ARCHITECTURE.md's "Identidade de loja") --
-// confirmed live to be present here too, on the store block markup this page
-// shares with the "Compra por Lista" results screen.
+// Same "mpuser.getStore(<id>)" onclick a store title carries everywhere else
+// on the site -- confirmed live to be present here too, on the store block
+// markup this page shares with the "Compra por Lista" results screen.
 const STORE_ID_ONCLICK_RE = /mpuser\.getStore\((\d+)\)/;
 
 function storeIdFromTitleEl(titleEl) {
