@@ -54,11 +54,12 @@ const SEARCH_ICON_LINK_ID = "lm-ext-scryfall-search-icon";
 // FILTER_BUTTON_HEIGHT in overlay-scryfall-filter.js) so every SAMV control
 // added to this header reads as the same family of controls.
 const SEARCH_ICON_SIZE = "26px";
-// left offset (6px) + icon width (26px) + a small gap before typed text
-// (6px) -- replaces the native field's own 32px (sized for a plain 16px
-// decorative icon, no gap requirement since nothing was ever clickable
-// there).
-const SEARCH_ICON_FIELD_PADDING_LEFT = "38px";
+// right offset (6px) + icon width (26px) + a small gap after typed text
+// (6px). The native field instead reserved 32px on the LEFT for its own
+// decorative icon; with that icon switched off and ours on the right, that
+// left gutter would just be empty space, so it drops to a plain text inset.
+const SEARCH_ICON_FIELD_PADDING_RIGHT = "38px";
+const SEARCH_FIELD_PADDING_LEFT = "10px";
 
 /** Builds the absolute URL a real Enter/submit on `form` would navigate to right now, from every one of its fields (not just the visible text) -- same construction the browser itself does for a method="get" form submit. */
 function computeSearchHref(form) {
@@ -81,12 +82,11 @@ function injectSearchIcon() {
   }
 
   // Turns off the native decorative icon so it doesn't render underneath
-  // ours, then reserves a left-hand gutter sized for OUR icon instead of
-  // the native one's. Also drops the old right-edge button's own reserved
-  // padding (see the file header) -- nothing sits there any more.
+  // ours, reclaims the left gutter it used to occupy, and reserves a
+  // right-hand one sized for OUR icon instead.
   field.style.backgroundImage = "none";
-  field.style.paddingLeft = SEARCH_ICON_FIELD_PADDING_LEFT;
-  field.style.removeProperty("padding-right");
+  field.style.paddingLeft = SEARCH_FIELD_PADDING_LEFT;
+  field.style.paddingRight = SEARCH_ICON_FIELD_PADDING_RIGHT;
 
   const link = document.createElement("a");
   link.id = SEARCH_ICON_LINK_ID;
@@ -96,11 +96,10 @@ function injectSearchIcon() {
     '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>';
   Object.assign(link.style, {
     // form.header-search is `position: relative` natively (confirmed live),
-    // so this positions relative to the form/field box exactly like the
-    // removed right-edge button used to, just mirrored to the left edge at
-    // the native icon's own offset.
+    // so this positions against the form/field box; it sits at the trailing
+    // edge, after the typed text.
     position: "absolute",
-    left: "6px",
+    right: "6px",
     top: "50%",
     transform: "translateY(-50%)",
     display: "flex",
@@ -124,7 +123,7 @@ function injectSearchIcon() {
   // Absolutely positioned, so where it lands in the form's own flex flow
   // doesn't matter (see the file header on position:relative/absolute).
   form.appendChild(link);
-  searchLog("Injected clickable search icon (left edge, real link with dynamic href).");
+  searchLog("Injected clickable search icon (right edge, real link with dynamic href).");
 }
 
 observeAndRerun((mutations) => hasAddedNodeMatching(mutations, SEL_SEARCH_FORM), injectSearchIcon);

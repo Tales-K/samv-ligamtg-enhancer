@@ -27,6 +27,16 @@
 const filterLog = createLogger("Scryfall Filter");
 
 const SEL_HEADER_ROW = "div.header-control-row";
+// Scryfall's own navigation links, the boundary this extension's controls sit
+// in front of -- see the insert in injectFilterControls.
+const SEL_HEADER_LINKS = "div.header-links";
+// Gap between this extension's controls and Scryfall's links, whose own first
+// child is a divider bar that would otherwise touch them. Applied to the links
+// block rather than to our controls because which of ours ends up last varies
+// -- "Carregar preços pendentes" only mounts when there's something pending --
+// so one rule on the boundary covers both cases. Same 8px every SAMV control
+// in this row already uses as its own left gap.
+const HEADER_LINKS_GAP = "8px";
 const SEL_FILTER_SEARCH_FIELD = "#header-search-field";
 const FILTER_WRAPPER_ID = "lm-ext-scryfall-filter-wrapper";
 const FILTER_BUTTON_ID = "lm-ext-scryfall-filter-btn";
@@ -477,7 +487,19 @@ function injectFilterControls(filter) {
   // whether a filter value is currently saved -- see the file header.
   wrapper.appendChild(buildFilterButton());
   wrapper.appendChild(buildGearButton());
-  row.appendChild(wrapper);
+  // Grouped with the other SAMV controls right after the search box and the
+  // colour pips, ahead of Scryfall's own links and menu, rather than at the
+  // very end of the row. "Carregar preços pendentes" needs no rule of its own
+  // for this: it mounts "afterend" of this wrapper (renderPendingPricesButton's
+  // mountAfter in overlay-scryfall.js), so it follows wherever this goes.
+  const links = row.querySelector(SEL_HEADER_LINKS);
+  if (links) {
+    row.insertBefore(wrapper, links);
+    links.style.marginLeft = HEADER_LINKS_GAP;
+  } else {
+    row.appendChild(wrapper);
+    filterLog(`"${SEL_HEADER_LINKS}" não encontrado — controles no fim da linha.`);
+  }
   filterLog("Injected default-filter controls.");
 }
 

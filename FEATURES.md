@@ -203,7 +203,7 @@ página individual da carta
 - Clique no preço abre a página da carta no LigaMagic (opcional)
 
 ## Scryfall (scryfall.com)
-- Ícone de busca (lupa roxa, lado esquerdo do campo de pesquisa do
+- Ícone de busca (lupa roxa, lado direito do campo de pesquisa do
   cabeçalho) — é um link de verdade: clique simples dispara a mesma busca
   que apertar Enter já dispara, e ctrl+clique ou clique do meio abre a busca
   numa aba nova
@@ -230,7 +230,9 @@ página individual da carta
 - Botão "Carregar Preço" — carrega sob demanda o preço de um card específico
   que ainda não tem a coluna "R$"
 - Botão "Filtro padrão" — acrescenta um filtro configurável (ex.:
-  `sort:edhrec`) ao campo de busca do header, sem submeter
+  `sort:edhrec`) ao campo de busca do header, sem submeter. Ele e o
+  "Carregar preços pendentes" ficam logo depois das pipetas de cor e antes
+  dos links de navegação do próprio Scryfall
 - Botão de engrenagem ao lado dele — abre um painel flutuante para definir o
   filtro padrão sem sair do Scryfall. O valor é o mesmo campo "Filtro padrão"
   do popup da extensão, então pode ser editado pelos dois lugares
