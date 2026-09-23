@@ -154,6 +154,17 @@ página individual da carta
   diferença para o total atual (considerando as quantidades compradas de
   cada carta), em roxo
 
+### Meus Pedidos — `?view=mp/compras`
+- Botão "Copiar" em cada pedido — copia as cartas daquele pedido agrupadas
+  por loja. Abre o mesmo painel de opções da Compra por Lista (incluir
+  versão, qualidade, idioma, preço, e "Formato detalhado"), e as escolhas são
+  as mesmas nas duas telas. O cabeçalho de cada loja traz o ID e o domínio
+  dela quando já conhecidos. Aparece à esquerda de "Avaliar Lojas" nos
+  pedidos que têm esse botão, e no mesmo lugar nos que não têm. Ao confirmar,
+  carrega os itens que ainda não estiverem na página, sem abrir nem fechar os
+  itens do pedido — inclusive nos pedidos feitos na loja virtual do vendedor,
+  que não têm o botão "Visualizar Itens"
+
 ### Carrinho — `?view=mp/carrinho`
 - Botão "Copiar Lista" — copia os cards do carrinho no formato detalhado do
   LigaMagic (edição, qualidade, idioma, extras); o comentário de cada loja
@@ -201,7 +212,10 @@ página individual da carta
   busca; acende quando o termo correspondente já está no campo (clicado ou
   digitado à mão)
 - Overlay de preço — coluna "R$" na tabela de impressões, em resultados de
-  busca (`as=full`) e na página individual da carta
+  busca (`as=full`) e na página individual da carta. Só o cabeçalho "R$" tem
+  fundo roxo; os valores ficam sobre a cor normal da linha, com o texto em
+  roxo. O cabeçalho traz um ícone 🔗 e é um link para a página da carta no
+  LigaMagic
 - Selo de preço em BRL sobre cada carta nos resultados de busca em grade
   (`as=grid`), colorido pela idade do preço (ver nota sobre cores no topo do
   arquivo)
@@ -211,7 +225,8 @@ página individual da carta
   Card" da página individual da carta
 - Clique no preço abre a página da carta no LigaMagic (opcional)
 - Botão "Carregar Tags" — busca as tags do Scryfall Tagger e mostra numa
-  tabela, na caixa de impressões da carta
+  tabela, na caixa de impressões da carta, ocupando a mesma largura dos
+  demais cards daquela coluna
 - Botão "Carregar Preço" — carrega sob demanda o preço de um card específico
   que ainda não tem a coluna "R$"
 - Botão "Filtro padrão" — acrescenta um filtro configurável (ex.:

@@ -162,8 +162,30 @@ function applyPrices(priceMap, openLigaMagicOnClick = true, blocks = document.qu
       th.style.setProperty("background-color", SAMV_PURPLE, "important");
       th.style.setProperty("color", "#ffffff", "important");
       const span = document.createElement("span");
-      span.textContent = "R$";
       span.style.setProperty("color", "#ffffff", "important");
+      // The header doubles as a link to this card's LigaMagic page. The link
+      // icon is what marks it as clickable -- a bare "R$" reads as an inert
+      // column label like USD/EUR/TIX beside it.
+      const headerLink = document.createElement("a");
+      headerLink.href = url;
+      headerLink.target = "_blank";
+      headerLink.rel = "noopener noreferrer";
+      headerLink.title = `Abrir ${name} no LigaMagic`;
+      headerLink.textContent = "R$ \u{1F517}";
+      headerLink.style.cssText = [
+        "color: #ffffff !important",
+        "text-decoration: none",
+        "cursor: pointer",
+        "white-space: nowrap",
+        "transition: opacity 0.15s",
+      ].join("; ");
+      headerLink.onmouseenter = () => {
+        headerLink.style.opacity = "0.75";
+      };
+      headerLink.onmouseleave = () => {
+        headerLink.style.opacity = "1";
+      };
+      span.appendChild(headerLink);
       th.appendChild(span);
       headerRow.appendChild(th);
     }
@@ -180,16 +202,13 @@ function applyPrices(priceMap, openLigaMagicOnClick = true, blocks = document.qu
       }
 
       const td = document.createElement("td");
-      // Same purple-background treatment as the header — !important so
-      // Scryfall's own row striping/hover CSS can't win. The link text
-      // used to be colored by priceColor() (green/yellow/red for price
-      // freshness); against this purple, all three of those read at very
-      // low contrast (~1.2–2.7:1, checked against WCAG contrast math —
-      // well under the 4.5:1 floor for normal text), so freshness is no
-      // longer encoded in color here. It's still available on hover via
-      // the tooltip below.
-      td.style.setProperty("background-color", SAMV_PURPLE, "important");
-      td.style.setProperty("color", SAMV_PURPLE_TEXT, "important");
+      // Only the "R$" header carries the purple fill. The body cells keep
+      // Scryfall's own row striping/hover background and take the brand
+      // purple on the text instead — !important so the site's own td color
+      // rule can't win. Price freshness (formerly priceColor()'s
+      // green/yellow/red) is not encoded in color here; it stays available
+      // on hover via the tooltip below.
+      td.style.setProperty("color", SAMV_PURPLE, "important");
 
       if (info?.priceMin != null) {
         const a = document.createElement("a");
@@ -201,7 +220,7 @@ function applyPrices(priceMap, openLigaMagicOnClick = true, blocks = document.qu
         a.title = tooltip;
         a.textContent = label;
         a.style.cssText = [
-          `color: ${SAMV_PURPLE_TEXT} !important`,
+          `color: ${SAMV_PURPLE} !important`,
           "text-decoration: none",
           openLigaMagicOnClick ? "cursor: pointer" : "cursor: default",
           "transition: opacity 0.15s",
@@ -225,7 +244,7 @@ function applyPrices(priceMap, openLigaMagicOnClick = true, blocks = document.qu
         }
         a.textContent = label;
         a.style.cssText = [
-          `color: ${SAMV_PURPLE_TEXT} !important`,
+          `color: ${SAMV_PURPLE} !important`,
           "text-decoration: none",
           openLigaMagicOnClick ? "cursor: pointer" : "cursor: default",
           "transition: opacity 0.15s",

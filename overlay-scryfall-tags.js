@@ -288,6 +288,13 @@ function loadTags(box, button, coords) {
     // The table is full-width native markup, not the centered button/error
     // layout, so the box's own flex centering is dropped.
     box.removeAttribute("style");
+    // Once it holds a table this box is a card in the prints column, so it
+    // spans the whole column like the prints box above it instead of
+    // shrinking to its content. Relative, not a fixed width: the column is
+    // narrower on the "full" search-results layout than on a card page.
+    // flex-shrink 0 keeps the wrapper's gap from squeezing it, which also
+    // pushes the Price button (when still present) onto its own line.
+    box.style.flex = "1 0 100%";
     box.replaceChildren(buildTagsTable(response?.tags ?? []));
   });
 }

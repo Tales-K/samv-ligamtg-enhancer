@@ -344,6 +344,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     saveSettings(request.settings).then(() => sendResponse({ ok: true }));
     return true;
   }
+  if (request.action === "loadPedidoItens") {
+    handleLoadPedidoItens(sender.tab?.id, request.cod).then(sendResponse);
+    return true;
+  }
   if (request.action === "reinitTooltips") {
     handleReinitTooltips(sender.tab?.id);
     return false; // fire-and-forget, no response expected
@@ -612,6 +616,38 @@ async function handleQueryPrices(names) {
  * world: "MAIN" instead — the supported way to run code in the page's own
  * context — which only the background service worker can call.
  */
+/**
+ * Runs the purchases page's own item loader for one store of an order.
+ *
+ * The POST it makes carries a token only the page can mint (its own
+ * sale.getTokenUrl()), so this drives the site's function in the page world
+ * instead of rebuilding the request here. sale.getItens only writes the
+ * result into "#venda_<cod>" and never touches that block's visibility, so
+ * the order stays collapsed or expanded exactly as the user left it.
+ *
+ * Called once per store, awaited by the caller between stores -- never as a
+ * parallel fan-out.
+ */
+async function handleLoadPedidoItens(tabId, cod) {
+  if (tabId == null) return { error: "sem aba de origem" };
+  if (!/^\d+$/.test(String(cod))) return { error: `código de pedido inválido: ${cod}` };
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      world: "MAIN",
+      func: (codigo) => {
+        if (typeof sale !== "undefined" && typeof sale.getItens === "function") {
+          sale.getItens(codigo);
+        }
+      },
+      args: [Number(cod)],
+    });
+    return { ok: true };
+  } catch (erro) {
+    return { error: String(erro) };
+  }
+}
+
 function handleReinitTooltips(tabId) {
   if (tabId == null) return;
   chrome.scripting.executeScript({
@@ -3106,6 +3142,7 @@ const DEFAULT_SETTINGS = {
   // doesn't rerun the solver. { hash, relatorio } | null
   analiseEconomiaCache: null,
   addCarrinhoCopyButton: true, // whether the "Copiar Lista" button is injected into the cart's shopping list
+  addComprasCopyButton: true, // whether the "Copiar" button is added to each order on the purchases screen
   addCardHoverLinks: true, // whether Scryfall/EDHREC buttons are added to the card-hover image tooltip
   addCardSearchContextMenu: true, // whether the "Pesquisar carta" right-click submenu is registered, browser-wide
   addEditionSearchButton: true, // whether the magnifying-glass badge is added next to edition icons on a card page

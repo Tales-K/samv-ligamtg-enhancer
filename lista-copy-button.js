@@ -24,35 +24,22 @@
  * IDIOMA_SIGLAS), lista-defaults.js (isListaCardsPage)
  */
 
-// Official LigaMagic idioma codes, same list as the "Idiomas" checkboxes in
-// popup.html's "Compra por Lista" settings — abbreviated to match the
-// EN/PT/PTEN/PH badges the results screen itself already shows per card.
-const IDIOMA_LABELS = {
-  1: "DE",
-  2: "EN",
-  3: "ES",
-  4: "FR",
-  5: "IT",
-  6: "JP",
-  7: "KR",
-  8: "PT",
-  9: "RU",
-  10: "CT",
-  11: "PTEN",
-  12: "CS",
-  16: "PH",
-};
+const COPY_LISTA_PREFIX = "lgm-copy-lista";
 
 // ── Text building ─────────────────────────────────────────────────────────────
+/** Resolves this screen's numeric codes, then defers to the shared builder. */
 function formatCardLine(carta, options) {
-  let line = `${carta.quantidade} ${carta.nomeInglesSA}`;
-  if (options.versao && carta.sSigla) line += ` (${carta.sSigla.toUpperCase()})`;
-  // Same M/NM/SP/... codes the detailed format uses, just upper-cased for
-  // this more human-facing format.
-  if (options.qualidade) line += ` [${QUALIDADE_SIGLAS[carta.iQualidade]?.toUpperCase() ?? "?"}]`;
-  if (options.idioma) line += ` [${IDIOMA_LABELS[carta.iIdioma] ?? "?"}]`;
-  if (options.preco) line += ` - R$ ${carta.precoTotal}`;
-  return line;
+  return buildSimpleLine(
+    {
+      quantidade: carta.quantidade,
+      nome: carta.nomeInglesSA,
+      edicao: carta.sSigla,
+      qualidade: QUALIDADE_SIGLAS[carta.iQualidade],
+      idioma: IDIOMA_LABELS[carta.iIdioma],
+      preco: carta.precoTotal,
+    },
+    options,
+  );
 }
 
 /** Maps a result card onto the shape detailed-format.js expects. */
@@ -95,27 +82,6 @@ function buildListaText(resultado, options, storeCache) {
 }
 
 // ── Panel ─────────────────────────────────────────────────────────────────────
-const OPTION_FIELDS = [
-  { key: "versao", label: "Incluir versão" },
-  { key: "qualidade", label: "Incluir qualidade" },
-  { key: "idioma", label: "Incluir idioma" },
-  { key: "preco", label: "Incluir preço" },
-];
-
-const DETALHADO_FIELD = {
-  key: "detalhado",
-  label: "Formato detalhado",
-  title:
-    "Copia no formato do próprio LigaMagic, fixando edição, qualidade, " +
-    "idioma e extras de cada carta. Pode ser colado de volta na Compra por Lista.",
-};
-
-const checkboxRow = ({ key, label, title }, checked) => `
-  <label title="${title ?? ""}" style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px; cursor: pointer;">
-    <input type="checkbox" class="lgm-copy-lista-opt" data-key="${key}" ${checked ? "checked" : ""}>
-    ${label}
-  </label>`;
-
 function buildWrap(initialOptions) {
   const wrap = document.createElement("span");
   wrap.id = "lgm-copy-lista-wrap";
@@ -126,41 +92,12 @@ function buildWrap(initialOptions) {
   wrap.style.cssText = "position: relative; display: block; width: 100%; box-sizing: border-box; margin-top: 10px;";
   wrap.innerHTML = `
     <div class="botao" id="lgm-copy-lista-btn" style="cursor: pointer; display: block; width: 100%; box-sizing: border-box; text-align: center;">Copiar Lista de Compras</div>
-    <div id="lgm-copy-lista-panel" style="display: none; position: absolute; bottom: 100%; left: 0; margin-bottom: 6px;
-      background: #fff; border: 1px solid #999; border-radius: 2px; padding: 10px; width: 190px; z-index: 50;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.2); font-size: 12px;">
-      ${checkboxRow(DETALHADO_FIELD, initialOptions[DETALHADO_FIELD.key])}
-      <div id="lgm-copy-lista-extra-opts" style="border-top: 1px solid #ddd; margin: 8px 0; padding-top: 8px;">
-        ${OPTION_FIELDS.map(({ key, label }) => checkboxRow({ key, label }, initialOptions[key])).join("")}
-      </div>
-      <div class="botao" id="lgm-copy-lista-confirm" style="cursor: pointer; text-align: center; margin-top: 4px;">Copiar</div>
-    </div>
+    ${copyOptionsPanelHTML(COPY_LISTA_PREFIX, initialOptions, "bottom: 100%; left: 0; margin-bottom: 6px;")}
   `;
   return wrap;
 }
 
-function readOptionsFromPanel(panel) {
-  const options = {};
-  panel.querySelectorAll(".lgm-copy-lista-opt").forEach((el) => {
-    options[el.dataset.key] = el.checked;
-  });
-  return options;
-}
-
-/**
- * The detailed format has a fixed line shape of its own, so the four
- * "incluir …" toggles have no effect while it's on — grey them out instead
- * of silently ignoring them.
- */
-function syncPanelState(panel) {
-  const detailedOn = panel.querySelector('[data-key="detalhado"]').checked;
-  const extraOpts = panel.querySelector("#lgm-copy-lista-extra-opts");
-  extraOpts.style.opacity = detailedOn ? "0.45" : "1";
-  extraOpts.querySelectorAll("input").forEach((el) => (el.disabled = detailedOn));
-}
-
-async function handleCopyClick(wrap, button, panel) {
-  const options = readOptionsFromPanel(panel);
+async function handleCopyClick(button, panel, options) {
   sendMessage({ action: "saveSettings", settings: { copyListaOptions: options } });
 
   const [resultado, storeCache] = await Promise.all([
@@ -205,26 +142,17 @@ function injectCopyListaButton(initialOptions) {
   finalizarBtn.parentElement.appendChild(wrap);
 
   const button = wrap.querySelector("#lgm-copy-lista-btn");
-  const panel = wrap.querySelector("#lgm-copy-lista-panel");
+  const panel = wrap.querySelector(`#${COPY_LISTA_PREFIX}-panel`);
   applySamvStyle(button);
-  // The panel's own confirm button is ours too, so it gets the same colour
-  // rather than sitting there in the site's default styling.
-  applySamvStyle(wrap.querySelector("#lgm-copy-lista-confirm"));
 
   button.addEventListener("click", (event) => {
     event.stopPropagation();
     panel.style.display = panel.style.display === "none" ? "block" : "none";
   });
 
-  panel
-    .querySelector('[data-key="detalhado"]')
-    .addEventListener("change", () => syncPanelState(panel));
-  syncPanelState(panel);
-
-  wrap.querySelector("#lgm-copy-lista-confirm").addEventListener("click", (event) => {
-    event.stopPropagation();
-    handleCopyClick(wrap, button, panel);
-  });
+  wireCopyOptionsPanel(panel, wrap.querySelector(`#${COPY_LISTA_PREFIX}-confirm`), (options) =>
+    handleCopyClick(button, panel, options),
+  );
 
   log('Injected "Copiar Lista de Compras" button.');
   return true;

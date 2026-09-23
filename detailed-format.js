@@ -41,7 +41,56 @@ const IDIOMA_SIGLAS = {
   16: "ph",
 };
 
-/** Lowercase and unaccented, the shape every token in this format uses. */
+// The abbreviations the site's own UI shows per card (the EN/PT/PTEN/PH
+// badges), keyed by the same idioma code as IDIOMA_SIGLAS above. Deliberately
+// separate from it: for some languages the badge and the parser token differ
+// (7 is "KR" on screen but `ko` to the parser, 10 is "CT"/`tw`, 12 is
+// "CS"/`tk`), so going from one to the other has to travel through this shared
+// numeric key rather than reusing the string.
+const IDIOMA_LABELS = {
+  1: "DE",
+  2: "EN",
+  3: "ES",
+  4: "FR",
+  5: "IT",
+  6: "JP",
+  7: "KR",
+  8: "PT",
+  9: "RU",
+  10: "CT",
+  11: "PTEN",
+  12: "CS",
+  16: "PH",
+};
+
+/**
+ * Parser token for an idioma given the badge the site rendered ("PT", "KR").
+ * For screens that only expose the badge and never the numeric code, this is
+ * the exact conversion -- see the note on IDIOMA_LABELS for why reusing the
+ * badge as the token would be wrong.
+ */
+function idiomaTokenFromLabel(label) {
+  const alvo = String(label ?? "").trim().toUpperCase();
+  const codigo = Object.keys(IDIOMA_LABELS).find((k) => IDIOMA_LABELS[k] === alvo);
+  return codigo ? IDIOMA_SIGLAS[codigo] : null;
+}
+
+/**
+ * The plain list format: "<qty> <name>", with the optional suffixes the copy
+ * panel's four toggles add. Takes fields already resolved to their display
+ * form, so a caller reading them off the DOM and a caller mapping them from
+ * the site's numeric codes share this one implementation.
+ */
+function buildSimpleLine({ quantidade, nome, edicao, qualidade, idioma, preco }, options) {
+  let line = `${quantidade} ${nome}`;
+  if (options.versao && edicao) line += ` (${String(edicao).toUpperCase()})`;
+  if (options.qualidade) line += ` [${qualidade ? String(qualidade).toUpperCase() : "?"}]`;
+  if (options.idioma) line += ` [${idioma || "?"}]`;
+  if (options.preco && preco) line += ` - R$ ${preco}`;
+  return line;
+}
+
+/** Lowercase and unaccented, the shape every token in this format uses. *//** Lowercase and unaccented, the shape every token in this format uses. */
 function normalizeDetailedToken(text) {
   return String(text ?? "")
     .normalize("NFD")

@@ -152,6 +152,7 @@ document.addEventListener("DOMContentLoaded", () => {
     "addMinPriceColumn",
     "addFreteCaroAlert",
     "addCarrinhoCopyButton",
+    "addComprasCopyButton",
     "showDebugLogs",
   ];
   const selectIds = ["defaultDeckView"];
