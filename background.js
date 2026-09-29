@@ -452,8 +452,15 @@ async function handleSendPrices(cards) {
 
   const stats = await loadStats();
 
-  // Cards that have a price at all.
-  const cardsWithPrice = cards.filter((c) => c.priceMin != null);
+  // Cards that have a price at all. R$ 0,00 is not one: on the site that
+  // means the card has no price registered yet, not that it is free, so it
+  // has to stay out of the cache instead of being stored as a real R$ 0,00
+  // that every overlay would then show. Basic lands are the one thing that
+  // legitimately answers 0, and they never reach this line -- they were
+  // filtered out above and are served synthetically by handleQueryPrices
+  // (see basicLandPriceEntry). This is the single write path every scraper
+  // goes through, so the rule holds for all of them at once.
+  const cardsWithPrice = cards.filter((c) => c.priceMin != null && c.priceMin > 0);
   // Among those, only the ones not yet sent today.
   const newCards = cardsWithPrice.filter((c) => !stats.todayCards[c.name]);
 

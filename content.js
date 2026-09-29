@@ -9,7 +9,8 @@
  *   5. deck-copy-button.js — replaces "Gerar Imagem" with "Copiar Deck"
  *   6. lista-defaults.js   — applies default filters on the "Compra por Lista" page
  *   7. scraper-card.js     — individual card page scraper
- *   8. content.js          — this file
+ *   8. scraper-search.js   — search-grid scraper (edition/group listings)
+ *   9. content.js          — this file
  *
  * The background service worker owns all storage reads/writes.
  */
@@ -26,4 +27,6 @@ if (isDeckPage()) {
   autoScrapeDeck();
 } else if (isCardPage()) {
   autoScrapeCardPage();
+} else if (isCardsSearchPage()) {
+  autoScrapeCardsSearch();
 }

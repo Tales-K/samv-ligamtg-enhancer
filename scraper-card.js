@@ -35,7 +35,11 @@ function readCheapestMinFromPanel() {
     .querySelectorAll("#container-price-mkp-card .price-mkp .min .price")
     .forEach((el) => {
       const price = parsePrice(el.textContent.replace("R$", "").trim());
-      if (price != null && (best == null || price < best)) best = price;
+      // A tier showing R$ 0,00 has no price registered yet, so it must not
+      // win the "cheapest" comparison -- otherwise a card priced in one
+      // edition and unpriced in another would resolve to 0 and then be
+      // dropped entirely, losing the price we do know.
+      if (price != null && price > 0 && (best == null || price < best)) best = price;
     });
   return best;
 }
@@ -57,7 +61,9 @@ function cheapestFromEditionPrice(priceEntry) {
   tiers.forEach((tier) => {
     if (!tier || Array.isArray(tier)) return; // [] = no offers at that quality
     const p = parseFloat(tier.p);
-    if (!isNaN(p) && (min == null || p < min)) min = p;
+    // Same reason as readCheapestMinFromPanel: 0 means "no price yet", so it
+    // can't be the minimum.
+    if (!isNaN(p) && p > 0 && (min == null || p < min)) min = p;
   });
   return min;
 }
