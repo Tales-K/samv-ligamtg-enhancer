@@ -16,6 +16,9 @@
  * Shared by the "Compra por Lista" results button (lista-copy-button.js) and
  * the cart list button (carrinho-copy-button.js), which read the same cards
  * from two very different places.
+ *
+ * Depends on: card-hover-links.js (fmtBRL) -- loaded later in the same
+ * bundle, which is fine since nothing here runs before a user click.
  */
 
 // Quality codes as they appear inside the parentheses of the site's own
@@ -127,11 +130,16 @@ function buildDetailedLine({ quantidade, nome, qualidade, edicao, idioma, extras
  * ({ id, name, domain }[] by id) -- domain is filled in only once
  * background.js has resolved it (see mergeScrapedStoresIntoCache), so it's
  * routinely still missing and left out rather than shown as empty.
+ *
+ * `frete`, when given, is appended after the identity group rather than
+ * inside it: the parentheses say which store this is, the shipping cost is
+ * one of its prices. Callers that have no shipping figure to show simply
+ * leave it out.
  */
-function buildStoreSectionTitle(nome, id, storeCache) {
-  if (id == null) return nome;
-  const domain = storeCache?.[String(id)]?.domain;
-  return domain ? `${nome} (ID ${id} · ${domain})` : `${nome} (ID ${id})`;
+function buildStoreSectionTitle(nome, id, storeCache, { frete } = {}) {
+  const domain = id == null ? null : storeCache?.[String(id)]?.domain;
+  const identidade = id == null ? nome : domain ? `${nome} (ID ${id} · ${domain})` : `${nome} (ID ${id})`;
+  return Number.isFinite(frete) ? `${identidade} — frete ${fmtBRL(frete)}` : identidade;
 }
 
 /**

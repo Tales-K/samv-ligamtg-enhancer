@@ -401,11 +401,20 @@ function injectCardPageLinks() {
     return false;
   }
 
-  const name = document.querySelector(".item-name-en")?.textContent?.trim();
+  // ".item-name-en" existe só quando a carta tem impressão em português: aí
+  // ".item-name" leva o nome em português e o inglês fica nesse elemento
+  // separado. Numa carta que nunca saiu em português o site renderiza um
+  // ".item-name" sozinho, já com o nome em inglês (confirmado ao vivo em
+  // "Super State"), então é dele que o nome sai nesse caso -- mesma leitura
+  // que scraper-card.js faz nesta mesma página. Uma página de busca sem card
+  // único não tem nenhum dos dois, e já não chega aqui por causa do
+  // ".item-fav" acima.
+  const nameEl = document.querySelector(".item-name-en") ?? document.querySelector(".item-name");
+  const name = nameEl?.textContent?.trim();
   if (!name) {
     logNotShown(
       "Scryfall/EDHREC (página de carta)",
-      "nome resolvido não encontrado (.item-name-en ausente/vazio — provável página de busca ambígua, sem um card único)",
+      'nome não encontrado (".item-name-en" e ".item-name" ausentes ou vazios)',
     );
     return false;
   }

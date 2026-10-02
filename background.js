@@ -213,7 +213,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
  *       second tab it opens, with no question asked
  *     → resolves with { caracteristicas, usouVersoesExatas }
  *
- *   { action: "startSuperPesquisa", payload: { targetLines: string[], filtros, baselineComReorg } }
+ *   { action: "startSuperPesquisa", payload: { targetLines: string[], nomesDoUsuario: string[], filtros, baselineComReorg } }
  *     → fire-and-forget, same reasoning as loadPendingPrices below: opens a
  *       second, BACKGROUNDED (active: false — this tab is never meant to be
  *       looked at directly, see "superPesquisaFocusTab" below for the one
@@ -1957,7 +1957,21 @@ const SUPER_PESQUISA_DISCOVERY_TARGET_TOTAL_QTY = 400;
 // still be the best match for the cards the user actually wants, and
 // injecting basics into every discovery search gave such a store no way to
 // show up unless it also happened to sell basics.
-const SUPER_PESQUISA_BASIC_LANDS = ["Plains", "Island", "Swamp", "Mountain", "Forest"];
+// Both languages: the target list carries English names when it copies just
+// name and quantity and Portuguese ones when it pins each card's exact
+// version, and this per-line ceiling has to recognise a basic either way.
+const SUPER_PESQUISA_BASIC_LANDS = [
+  "Plains",
+  "Island",
+  "Swamp",
+  "Mountain",
+  "Forest",
+  "Planície",
+  "Ilha",
+  "Pântano",
+  "Montanha",
+  "Floresta",
+];
 
 // Recent decks of a mix of formats, so the padding isn't all one archetype's
 // staples — format ids match the site's own "Decks" nav menu links
@@ -2079,6 +2093,24 @@ async function applyListaFiltros(tabId, filtros) {
     .catch(() => {});
 }
 
+/**
+ * Comparable form of a card name: accent-free and lowercased.
+ *
+ * Every screen this feature reads names from spells them a little
+ * differently -- a search result returns the Portuguese name already
+ * stripped of accents ("Custodia de Tamiyo"), a public deck page keeps its
+ * own spelling, and the list the user started from may carry either
+ * language. Comparing the raw forms loses a card to a single cedilla, so
+ * every name comparison in this feature goes through here.
+ */
+function chaveNomeCarta(nome) {
+  return (nome ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
 /** "1 Card Name" / "1 card name [qualidade=...]..." → "card name", for de-duplicating padding against the user's own cards regardless of which list format was chosen. */
 function cardNameFromLine(line) {
   return line
@@ -2094,7 +2126,8 @@ function lineWithQty(line, qty) {
 }
 
 function superPesquisaTetoDaLinha(line) {
-  const isBasic = SUPER_PESQUISA_BASIC_LANDS.some((nome) => nome.toLowerCase() === cardNameFromLine(line));
+  const nomeDaLinha = chaveNomeCarta(cardNameFromLine(line));
+  const isBasic = SUPER_PESQUISA_BASIC_LANDS.some((nome) => chaveNomeCarta(nome) === nomeDaLinha);
   return isBasic ? SUPER_PESQUISA_MAX_QTY_BASIC : SUPER_PESQUISA_MAX_QTY_NORMAL;
 }
 
@@ -2207,9 +2240,9 @@ function shuffleArray(array) {
   return copy;
 }
 
-async function pickPaddingDecks(tabId, neededCount, excludeNamesLower) {
+async function pickPaddingDecks(tabId, neededCount, excludeNameKeys) {
   const padding = [];
-  const seen = new Set(excludeNamesLower);
+  const seen = new Set(excludeNameKeys);
 
   for (const format of SUPER_PESQUISA_PADDING_FORMATS) {
     if (padding.length >= neededCount) break;
@@ -2221,7 +2254,7 @@ async function pickPaddingDecks(tabId, neededCount, excludeNamesLower) {
       const cards = await fetchDeckLines(tabId, deckId, SUPER_PESQUISA_TAB_TIMEOUT_MS);
       for (const { qty, name } of cards) {
         if (padding.length >= neededCount) break;
-        const key = name.toLowerCase();
+        const key = chaveNomeCarta(name);
         if (seen.has(key)) continue;
         seen.add(key);
         padding.push(`${qty} ${name}`);
@@ -2610,21 +2643,19 @@ const SUPER_PESQUISA_PLANO_OFERTAS_POR_CARTA = 8;
  * whole discovered pool in that case.
  */
 function mapaDeOfertasDaDescoberta(resultado, targetLines) {
-  // Acentos fora dos dois lados: o resultado do site devolve o nome em
-  // português já sem eles ("Custodia de Tamiyo"), e a lista de onde saem as
-  // targetLines nem sempre passou pelo mesmo caminho -- casar as duas formas
-  // cruas perderia carta por um cedilha.
-  const chaveNome = (nome) =>
-    (nome ?? "")
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .trim()
-      .toLowerCase();
-
   const desejadas = new Map(); // nome normalizado -> índice da carta
   const cartas = [];
   for (const line of targetLines) {
-    const nome = chaveNome(cardNameFromLine(line));
+    const nome = chaveNomeCarta(cardNameFromLine(line));
+    // A line the list builder left without a name can't be matched to
+    // anything, and keeping it under the empty key would make every offer
+    // whose own name is missing in that language answer to it. Reported
+    // rather than dropped quietly: it means the list this run started from
+    // was built wrong, upstream of here.
+    if (!nome) {
+      superPesquisaLog(`Linha sem nome na lista alvo, ignorada no plano: "${line}".`);
+      continue;
+    }
     if (desejadas.has(nome)) continue;
     desejadas.set(nome, cartas.length);
     cartas.push({ nome, qtd: parseInt(line, 10) || 1, ofertas: [] });
@@ -2647,7 +2678,14 @@ function mapaDeOfertasDaDescoberta(resultado, targetLines) {
       if (!carta) continue;
       const estoque = carta.iQuant ?? 0;
       if (estoque <= 0) continue;
-      const alvo = desejadas.get(chaveNome(carta.nomeInglesSA)) ?? desejadas.get(chaveNome(carta.nomePortuguesSA));
+      // Matched in either language: the target list carries the Portuguese
+      // name when it pins exact versions and the English one otherwise, and
+      // a card with no Portuguese printing has an empty nomePortuguesSA --
+      // which is why the Portuguese key is only consulted when it has
+      // something in it.
+      const chavePt = chaveNomeCarta(carta.nomePortuguesSA);
+      const alvo =
+        desejadas.get(chaveNomeCarta(carta.nomeInglesSA)) ?? (chavePt ? desejadas.get(chavePt) : undefined);
       if (alvo === undefined) continue; // carta de preenchimento
       cartas[alvo].ofertas.push([j, Math.round(carta.preco * 100), estoque]);
     }
@@ -2877,7 +2915,7 @@ function harvestStores(resultado) {
 const superPesquisaContextByTabId = new Map();
 
 async function handleStartSuperPesquisa(payload, originTabId) {
-  const { targetLines, filtros, baselineComReorg } = payload ?? {};
+  const { targetLines, filtros, baselineComReorg, nomesDoUsuario } = payload ?? {};
   if (!Array.isArray(targetLines) || targetLines.length === 0) return;
 
   const reportBack = (message) => {
@@ -2911,7 +2949,13 @@ async function handleStartSuperPesquisa(payload, originTabId) {
     // settled on 2 stores; padded with ~45 unrelated staples under the same
     // settings, those same 5 cards spread across 4 different stores,
     // including one that never appeared at all in the small search.
-    const usedNames = new Set(targetLines.map(cardNameFromLine));
+    // What the padding must not repeat. The target lines alone aren't enough:
+    // they spell each card in one language, and a public deck page spells it
+    // in the other, so a card already on the user's list would come back as
+    // padding -- searched again at the padding quantity, on a line the real
+    // list already paid for. `nomesDoUsuario` carries both names of every
+    // card on the list for exactly this comparison.
+    const usedNames = new Set([...targetLines.map(cardNameFromLine), ...(nomesDoUsuario ?? [])].map(chaveNomeCarta));
 
     const alvo = superPesquisaLinhasDeDescoberta(targetLines);
     const discoveryTargetLines = alvo.linhas;

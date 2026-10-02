@@ -46,8 +46,13 @@ function formatCardLine(carta, options) {
 function detailedCardFromResultado(carta) {
   return {
     quantidade: carta.quantidade,
-    // The detailed format is keyed on the Portuguese names.
-    nome: carta.nomePortuguesSA,
+    // The detailed format normally carries the Portuguese name, but the site
+    // leaves nomePortuguesSA as an empty string for a card that has no
+    // Portuguese printing -- confirmed live on Marvel ("msc") and Final
+    // Fantasy ("fin") cards, where it emitted a line with no name at all.
+    // The site's own list parser accepts the name in either language, so the
+    // English one (always populated) is the fallback.
+    nome: carta.nomePortuguesSA?.trim() || carta.nomeInglesSA,
     qualidade: QUALIDADE_SIGLAS[carta.iQualidade],
     edicao: carta.sSigla,
     idioma: IDIOMA_SIGLAS[carta.iIdioma],
@@ -71,12 +76,32 @@ function buildListaText(resultado, options, storeCache) {
     ? (carta) => buildDetailedLine(detailedCardFromResultado(carta))
     : (carta) => formatCardLine(carta, options);
 
-  const sections = Object.values(resultado)
-    .filter(Boolean)
-    .map((bloco) => ({
-      title: buildStoreSectionTitle(bloco.nomeLoja, bloco.loja, storeCache),
+  // A loja também leva o frete dela quando a cópia leva preço -- é o que
+  // falta pra somar o custo real de cada bloco fora do site. Só quando a
+  // cópia REALMENTE leva preço: o formato detalhado tem forma de linha fixa
+  // e desliga as quatro opções (a de preço inclusive, visivelmente, no
+  // painel), então mostrar frete ali contradiria o próprio painel.
+  const comPreco = !!options.preco && !options.detalhado;
+  const semFrete = [];
+
+  const blocos = Object.values(resultado).filter(Boolean);
+  const sections = blocos.map((bloco) => {
+    if (comPreco && !Number.isFinite(bloco.frete)) semFrete.push(bloco.nomeLoja);
+    return {
+      title: buildStoreSectionTitle(bloco.nomeLoja, bloco.loja, storeCache, {
+        frete: comPreco ? bloco.frete : undefined,
+      }),
       lines: bloco.cartas.filter((carta) => carta && carta.quantidade > 0).map(formatLine),
-    }));
+    };
+  });
+
+  // O site só tem frete depois que uma forma de envio foi escolhida pra
+  // aquela loja, então isso é um estado normal da tela -- mas silencioso do
+  // lado de quem copiou, que veria a linha de uma loja sem frete e de outra
+  // com, sem explicação.
+  if (semFrete.length > 0) {
+    log(`Copiar Lista: sem frete calculado para ${semFrete.join(", ")} — linha da loja copiada sem ele.`);
+  }
 
   return buildSectionedText(sections);
 }

@@ -220,6 +220,29 @@ async function prepararSuperPesquisa() {
   return { resultado, baselineComReorg };
 }
 
+/**
+ * Every name the user's own cards answer to, in both languages.
+ *
+ * The target list itself spells each card in one language only -- English
+ * when it copies just name and quantity, Portuguese when it pins each card's
+ * exact version -- so it can't be compared against a list that spells them
+ * in the other one. Sent alongside the target lines so the discovery
+ * padding, which reads Portuguese names off public deck pages, can tell
+ * which cards are already on the list however they're spelled there.
+ */
+function nomesDasCartasDoUsuario(resultado) {
+  const nomes = new Set();
+  for (const bloco of Object.values(resultado ?? {})) {
+    for (const carta of bloco?.cartas ?? []) {
+      if (!carta || !(carta.quantidade > 0)) continue;
+      if (carta.nomeInglesSA) nomes.add(carta.nomeInglesSA);
+      // Empty on a card with no Portuguese printing.
+      if (carta.nomePortuguesSA?.trim()) nomes.add(carta.nomePortuguesSA);
+    }
+  }
+  return [...nomes];
+}
+
 /** The real, unmodified shopping list both flavours search with in phase 2. */
 function montarTargetLines(resultado, filtros) {
   const fullText = buildListaText(resultado, buildTargetOptions(filtros?.usouVersoesExatas), undefined);
@@ -255,7 +278,12 @@ async function iniciarSuperPesquisa() {
     superPesquisaRerenderCorpos();
     await sendMessage({
       action: "startSuperPesquisa",
-      payload: { targetLines, filtros: filtros?.caracteristicas, baselineComReorg },
+      payload: {
+        targetLines,
+        nomesDoUsuario: nomesDasCartasDoUsuario(resultado),
+        filtros: filtros?.caracteristicas,
+        baselineComReorg,
+      },
     });
     superPesquisaLog(`Iniciada com ${targetLines.length} carta(s) alvo.`);
   } catch (err) {

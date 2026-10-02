@@ -79,7 +79,8 @@ página individual da carta
 - Botão "Copiar Lista de Compras" — copia os cards ainda na lista, por loja,
   em formato de lista de Magic (com opções: incluir versão, qualidade, idioma
   e preço de cada carta); o comentário de cada loja também traz o ID dela e,
-  quando já resolvido, o site
+  quando já resolvido, o site. Com "incluir preço" marcado, a linha da loja
+  traz também o frete dela
 - Botão "Análise de Economia" — abre uma modal com, de cima pra baixo: o
   cabeçalho, o status da Super Pesquisa (ver abaixo), os dois botões de
   ação e três abas de sugestões:
