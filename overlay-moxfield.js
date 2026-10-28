@@ -942,14 +942,15 @@ function run() {
       if (hoverAside) updateHoverStoreLink(hoverAside);
       updateModalStoreLink();
 
-      const missingNames = names.filter((n) => !priceMap[n]);
+      const missingNames = namesNeedingPrice(names, priceMap);
       renderPendingPricesButton({
         missingNames,
         onDone: () => {
           // applyPrices() marks every row PROCESSED_ATTR regardless of
           // whether a price was found, so a plain re-run would skip these
           // rows and never pick up the price the backfill just cached —
-          // clear the marker on exactly the ones that were missing.
+          // clear the marker on exactly the ones it refreshed (no price, or
+          // one that was out of date).
           document.querySelectorAll(SEL_CARD_ROW).forEach((row) => {
             const link = row.querySelector(SEL_CARD_LINK);
             const name = link && cardNameFromLink(link);
@@ -958,7 +959,6 @@ function run() {
           run();
         },
         log,
-        contextName: getViewedDeckName(),
         // Inline as a real flex item of the same toolbar row as Playtest/Buy
         // Deck/Download/More — not a separately positioned box relative to
         // that row — appended as the row's new last item, right after

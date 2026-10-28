@@ -96,11 +96,22 @@ function stripArenaAlchemyPrefix(name) {
 
 function priceColor(updatedAt) {
   if (!updatedAt) return "#ef4444"; // red   — not in DB
+  // Green is exactly "fresh" as the pending-prices buttons judge it (see
+  // price-freshness.js), so a price is never green and pending at once.
+  if (isPriceFresh(updatedAt)) return "#33ac5f"; // green  — < 1 week
   const age = Date.now() - new Date(updatedAt).getTime();
-  const DAY = 86_400_000;
-  if (age < 7 * DAY) return "#33ac5f"; // green  — < 1 week
-  if (age < 30 * DAY) return "#cfad25"; // yellow — 1 week – 1 month
+  if (age < 30 * 86_400_000) return "#cfad25"; // yellow — 1 week – 1 month
   return "#c73b3b"; // red    — older than 1 month
+}
+
+/**
+ * The cards the pending-prices button should (re)fetch: every name with no
+ * cached price, plus every one whose cached price is no longer fresh --
+ * i.e. everything not shown green. A yellow or red price is still shown,
+ * it's just also refreshed the next time the button is used.
+ */
+function namesNeedingPrice(names, priceMap) {
+  return names.filter((n) => !priceMap[n] || !isPriceFresh(priceMap[n].updatedAt));
 }
 
 /**
@@ -240,11 +251,6 @@ function stopPendingPricesTimer() {
   if (!pendingPricesTimerId) return;
   clearInterval(pendingPricesTimerId);
   pendingPricesTimerId = null;
-}
-
-/** Name of the deck/page currently open, read off its own <h1> — every site this runs on titles the page that way. Used to name the single LigaMagic deck the pending-prices backfill manages (see contextName below), but only the first time that deck is ever created on an account — never a fixed literal. */
-function getViewedDeckName() {
-  return document.querySelector("h1")?.textContent?.trim() || null;
 }
 
 function createPendingPricesWrapper(mountAfter, toolbarGap, btnPadding, btnBorderRadius, btnHeight, fullWidthRow, appendTo, wrapperClassName) {
@@ -463,7 +469,8 @@ function buildPendingPricesResultMessage(total, failedNames) {
 
 /**
  * Shows (or updates) a button offering to fetch LigaMagic prices for every
- * card on the page that came back with none. Clicking it asks the background
+ * card on the page that has no current one -- none cached at all, or one
+ * that's no longer fresh (see namesNeedingPrice). Clicking it asks the background
  * worker to visit each missing card's LigaMagic page in its own background
  * tab (see handleLoadPendingPrices) — the extension's existing card-page
  * scraper picks the price up there exactly as it would if the user had
@@ -477,20 +484,14 @@ function buildPendingPricesResultMessage(total, failedNames) {
  * validation, progress tracking, and messaging are identical everywhere.
  *
  * @param {object} opts
- * @param {string[]} opts.missingNames
+ * @param {string[]} opts.missingNames cards with no fresh price (see
+ *   namesNeedingPrice) -- missing outright or out of date.
  * @param {() => void} opts.onDone   called once the backfill finishes, so the
  *   caller can re-query prices and redraw.
  * @param {(...args: any[]) => void} opts.log
  * @param {string} [opts.siteName] site label for logNotShown when this
  *   button doesn't render (e.g. "Moxfield") — falls back to a generic label
  *   if a caller hasn't been updated to pass it yet.
- * @param {string} [opts.contextName] name of the deck/page the missing cards
- *   came from (e.g. the Moxfield deck being viewed), if the caller has one —
- *   used to name the single managed LigaMagic deck this backfill uses,
- *   instead of a fixed literal, but only the first time that deck is ever
- *   created on an account (every later run edits it in place and leaves its
- *   name untouched), so it doesn't look identical across every account
- *   running this extension.
  * @param {HTMLElement} [opts.mountAfter] element to insert the button right
  *   after (toolbar mode — the button becomes a permanent fixture there, like
  *   any other toolbar control). Omit for a floating bottom-right button that
@@ -554,7 +555,6 @@ function renderPendingPricesButton({
   onDone,
   log,
   siteName,
-  contextName,
   mountAfter,
   toolbarGap,
   btnPadding,
@@ -625,7 +625,7 @@ function renderPendingPricesButton({
       : "Carregar preços pendentes";
   log(
     missingNames.length > 0
-      ? `Botão "Carregar preços pendentes" exibido para ${missingNames.length} carta(s) sem preço no cache: ${missingNames.join(", ")}`
+      ? `Botão "Carregar preços pendentes" exibido para ${missingNames.length} carta(s) sem preço atualizado no cache: ${missingNames.join(", ")}`
       : `Botão "Carregar preços pendentes" exibido, sem cartas pendentes no momento`,
   );
 
@@ -705,7 +705,7 @@ function renderPendingPricesButton({
     chrome.runtime.onMessage.addListener(listener);
 
     log(`Enviando "loadPendingPrices" ao background para ${missingNames.length} carta(s).`);
-    chrome.runtime.sendMessage({ action: "loadPendingPrices", cards: missingNames, contextName }, () => {
+    chrome.runtime.sendMessage({ action: "loadPendingPrices", cards: missingNames }, () => {
       if (chrome.runtime.lastError) log("Background error:", chrome.runtime.lastError.message);
     });
   };

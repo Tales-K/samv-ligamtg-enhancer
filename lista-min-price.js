@@ -14,7 +14,9 @@
  * LigaMagic" endpoint to call. A card this extension has never seen priced
  * anywhere shows a dash instead of a guess; "Carregar valores mínimos"
  * (mounted between "Análise de Economia" and "Copiar Lista de Compras",
- * shown only while something's missing) backfills those via the exact same
+ * shown only while something's pending) backfills those -- and refreshes any
+ * cached minimum that's no longer fresh (see price-freshness.js), the same
+ * rule the overlay sites' "Carregar preços pendentes" uses -- via the exact same
  * batched, rate-limit-safe managed-deck mechanism "Carregar preços
  * pendentes" already uses elsewhere in this extension (handleLoadPendingPrices)
  * -- never one request per card.
@@ -32,7 +34,8 @@
  * SAMV_PURPLE, which this feature was explicitly asked to use.
  *
  * Depends on: content-utils.js (log, logNotShown, sendMessage, getSettings,
- * applySamvStyle, SAMV_PURPLE), lista-defaults.js (isListaCardsPage),
+ * applySamvStyle, SAMV_PURPLE), price-freshness.js (isPriceFresh),
+ * lista-defaults.js (isListaCardsPage),
  * analise-economia.js (formatarMoeda -- a genuinely top-level declaration in
  * that file, safe to call directly; see super-pesquisa.js's own doc comment
  * for why that's true only for top-level, non-block-scoped declarations).
@@ -256,7 +259,7 @@ function handleLoadMinPricesClick(btn, missingNames) {
   sendMessage({ action: "loadPendingPrices", cards: missingNames });
 }
 
-/** Mounted between "Análise de Economia" and "Copiar Lista de Compras" regardless of which of those two has already rendered -- see analise-economia.js/lista-copy-button.js's own anchoring comments for why order can't be assumed. Removed entirely once nothing is missing. */
+/** Mounted between "Análise de Economia" and "Copiar Lista de Compras" regardless of which of those two has already rendered -- see analise-economia.js/lista-copy-button.js's own anchoring comments for why order can't be assumed. Removed entirely once nothing is pending. */
 function ensureMinPriceButton(missingNames) {
   let wrap = document.getElementById(MIN_PRICE_BTN_WRAP_ID);
 
@@ -373,13 +376,16 @@ async function refreshMinPriceColumn() {
       buildMinPriceCellContent(cell, prices[r.nome]?.priceMin ?? null, r.precoUnit);
     }
 
-    const missingNames = distinctNames.filter((n) => prices[n]?.priceMin == null);
+    // Pending = no cached minimum at all, or one that's no longer fresh. A
+    // stale minimum still fills the column and the totals below; it's just
+    // also refreshed the next time the button is used.
+    const missingNames = distinctNames.filter((n) => prices[n]?.priceMin == null || !isPriceFresh(prices[n].updatedAt));
     ensureMinPriceButton(missingNames);
     renderMinPriceSummary(rows, prices);
 
     listaMinPriceLog(
       `Coluna atualizada: ${rows.length} linha(s), ${distinctNames.length} carta(s) distinta(s), ` +
-        `${missingNames.length} sem preço mínimo salvo.`,
+        `${missingNames.length} sem preço mínimo salvo ou com ele desatualizado.`,
     );
   } catch (err) {
     listaMinPriceLog("Falha ao atualizar a coluna —", err.message);

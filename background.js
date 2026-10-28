@@ -291,18 +291,17 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
  *       tags entirely
  *     → resolves with { tags: {name, slug}[] } | { error }
  *
- *   { action: "loadPendingPrices", cards: string[], contextName?: string }
+ *   { action: "loadPendingPrices", cards: string[] }
  *     → backfills LigaMagic prices for cards the Archidekt/Moxfield/Scryfall
- *       overlays found no cached price for (see handleLoadPendingPrices):
- *       maintains a single LigaMagic deck this extension owns per account
- *       (id kept in chrome.storage.local, see loadPendingPricesDeck) — the
- *       first ever call creates it, every later call just edits its card
- *       list to the current batch (in batches of up to 100) in a background
- *       tab, and lets the existing deck scraper (scraper-deck.js) read all
- *       their prices off that one page. The deck is never deleted; contextName
- *       (e.g. the Moxfield deck being viewed) only names it at that first
- *       creation (see buildTempDeckName) so the one deck every account ends up
- *       with doesn't carry an identical fixed name across every install.
+ *       overlays and the Compra por Lista "Preço Mínimo" column have no
+ *       fresh cached price for (see handleLoadPendingPrices): maintains a
+ *       single LigaMagic deck this extension owns per account, named
+ *       PENDING_PRICES_DECK_NAME (id kept in chrome.storage.local, see
+ *       loadPendingPricesDeck) — the first ever call creates it, every later
+ *       call just edits its card list to the current batch (in batches of up
+ *       to 100) in a background tab, and lets the existing deck scraper
+ *       (scraper-deck.js) read all their prices off that one page. The deck
+ *       is never deleted.
  *     → fire-and-forget: does NOT use sendResponse (see the handler below for
  *       why). Progress travels back to the calling tab as
  *       { action: "pendingPricesProgress", done, total, failedNames } after
@@ -432,7 +431,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     // their own one-way chrome.tabs.sendMessage calls instead (see
     // handleLoadPendingPrices), each one self-contained regardless of
     // whatever happened to this original message's channel.
-    handleLoadPendingPrices(request.cards, sender.tab?.id, request.contextName);
+    handleLoadPendingPrices(request.cards, sender.tab?.id);
     return false;
   }
 });
@@ -1339,8 +1338,8 @@ async function handleFetchCardTags(set, number) {
 //
 // Before trusting a stored deck id, ensureManagedDeck re-verifies it live:
 // the id's own "?view=dks/editar" page must still render (deck still exists
-// and is owned by this account) AND its form's card-id/name must match what
-// was recorded at creation — the same "is this actually still ours" spirit
+// and is owned by this account) AND its form's deck id/name must match what
+// this extension last saved it with — the same "is this actually still ours" spirit
 // the old delete-safety check had, just applied to editing instead of
 // deleting. Either check failing falls back to creating a fresh deck and
 // overwriting the stored id, so a deck the user deleted by hand (or a
@@ -1376,33 +1375,21 @@ const PENDING_PRICE_SCRAPE_SETTLE_MS = 2_500; // scraper-deck.js reads straight 
 const PENDING_PRICE_MAX_INVALID_ROUNDS = 5;
 
 /**
- * Name for the one managed deck this extension will ever create on an
- * account. Only called the very first time (see ensureManagedDeck) — once
- * the deck exists, its name is left alone forever, so this only needs to
- * avoid a fixed literal at that single moment, not vary run to run. If every
- * account running this extension created that deck under the exact same
- * name, the name alone would be enough to pick every extension user out of
- * LigaMagic's own data. Prefers contextName — the deck/page the missing
- * cards actually came from on that first run (e.g. the Moxfield deck being
- * viewed) — so the deck's name looks like an ordinary one a real player
- * might have typed, and varies by account. Falls back to the first card's
- * own name when there's no such context (Scryfall has no deck to name it
- * after).
+ * Name of the one managed deck, set when it's created and written again on
+ * every edit (see fillAndSubmitEditForm), so it reads the same on the
+ * account's deck list whatever page the backfill was started from. A deck
+ * created by an older version of this extension under some other name is
+ * renamed to this on its next edit.
  */
-function buildTempDeckName(contextName, names) {
-  const sanitized = (contextName ?? "").replace(/\s+/g, " ").trim().slice(0, 60);
-  if (sanitized) return sanitized;
-  return (names[0] ?? "Lista").slice(0, 60);
-}
+const PENDING_PRICES_DECK_NAME = "Lista de compras";
 
 // ── Managed deck storage ─────────────────────────────────────────────────────
 // Two flat values (not a list/registry — there is ever only one deck) holding
 // the id and name of the single deck this extension manages per account.
 // Kept as a pair rather than just the id so ensureManagedDeck can double-check
 // "is this actually still our deck" against something more specific than the
-// id alone (see the reasoning above the PENDING_PRICE_* constants) — the same
-// role the old create-then-delete flow's "does the page still show our
-// deck's distinctive name" check served.
+// id alone (see the reasoning above the PENDING_PRICE_* constants): a deck
+// the user renamed by hand is left to them and a fresh one is created.
 const PENDING_PRICES_DECK_ID_KEY = "pendingPricesDeckId";
 const PENDING_PRICES_DECK_NAME_KEY = "pendingPricesDeckName";
 
@@ -1420,14 +1407,14 @@ async function savePendingPricesDeck({ id, name }) {
   });
 }
 
-async function handleLoadPendingPrices(names, originTabId, contextName) {
+async function handleLoadPendingPrices(names, originTabId) {
   if (!Array.isArray(names) || names.length === 0) {
     pendingPricesLog("Called with no names — nothing to do.");
     return;
   }
 
   const unique = [...new Set(names)];
-  pendingPricesLog(`Starting backfill for ${unique.length} card(s) (contextName="${contextName ?? ""}"):`, unique);
+  pendingPricesLog(`Starting backfill for ${unique.length} card(s):`, unique);
   let done = 0;
   const failedNames = [];
 
@@ -1435,8 +1422,6 @@ async function handleLoadPendingPrices(names, originTabId, contextName) {
     const batch = unique.slice(i, i + PENDING_PRICE_BATCH_SIZE);
     pendingPricesLog(`Batch ${i / PENDING_PRICE_BATCH_SIZE + 1}: submitting ${batch.length} card(s) to the managed deck.`);
     try {
-      // contextName only matters if this batch ends up creating the deck
-      // (no valid stored one yet) — see buildTempDeckName/ensureManagedDeck.
       // Anything the deck form itself never recognized (after its own
       // front-face/back-face substitution retries — see
       // scrapeBatchViaManagedDeck) is reported as failed outright, with no
@@ -1450,7 +1435,7 @@ async function handleLoadPendingPrices(names, originTabId, contextName) {
       // dropped name turns that into exactly the request burst this project
       // avoids deliberately (see "Nunca gerar rajadas de requisições" in the
       // dev instructions) — never worth it for one extra resolution attempt.
-      const { dropped } = await scrapeBatchViaManagedDeck(batch, contextName);
+      const { dropped } = await scrapeBatchViaManagedDeck(batch);
       failedNames.push(...dropped);
       pendingPricesLog(
         dropped.length > 0
@@ -1538,8 +1523,11 @@ async function pageIsLoggedOut(tabId) {
  * Opens the extension's stored managed deck in its edit page and verifies
  * live that it's still safe to treat as ours — the deck must still exist
  * (its "?view=dks/editar" form actually renders, which LigaMagic only does
- * for a deck this account owns) AND the form's own hidden deck-id field plus
- * its current name must match what was recorded when the deck was created.
+ * for a deck this account owns) AND the form's own hidden deck-id field must
+ * match the stored id, with its current name either the one stored alongside
+ * it or PENDING_PRICES_DECK_NAME (a rename that landed on the site but not
+ * yet in storage -- see scrapeBatchViaManagedDeck). A deck the user renamed
+ * to something else by hand no longer counts as this extension's.
  * Returns `{ tabId, deckId }` (the tab left open, positioned on the loaded
  * edit form) when both checks pass, or `null` when there's no stored deck at
  * all, or the ownership check fails — the caller falls back to creating a
@@ -1565,7 +1553,7 @@ async function ensureManagedDeck() {
 
     const [{ result }] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
-      func: (expectedId, expectedName, loginSelector) => {
+      func: (expectedId, expectedNames, loginSelector) => {
         const form = document.getElementById("formNewDeck");
         if (!form) {
           // deck deleted/not owned, or the session is signed out — the
@@ -1573,9 +1561,9 @@ async function ensureManagedDeck() {
           return document.querySelector(loginSelector) ? "logged-out" : "not-found";
         }
         const iddeck = form.querySelector('input[name="iddeck"]')?.value;
-        return iddeck === expectedId && form.deck_nome?.value === expectedName ? "ok" : "not-found";
+        return iddeck === expectedId && expectedNames.includes(form.deck_nome?.value) ? "ok" : "not-found";
       },
-      args: [stored.id, stored.name, LOGIN_LINK_SELECTOR],
+      args: [stored.id, [stored.name, PENDING_PRICES_DECK_NAME], LOGIN_LINK_SELECTOR],
     });
 
     if (result === "ok") {
@@ -1637,7 +1625,7 @@ async function ensureManagedDeck() {
  * already caches under whatever exact name LigaMagic's own scrape reports,
  * and a lone back-face name has nothing further to reconcile).
  */
-async function scrapeBatchViaManagedDeck(names, contextName) {
+async function scrapeBatchViaManagedDeck(names) {
   let currentNames = [...names];
   const droppedNames = [];
   const substitutionOf = new Map(); // substitute name -> { original, stage: "front" | "back" }
@@ -1647,10 +1635,6 @@ async function scrapeBatchViaManagedDeck(names, contextName) {
   const tabId = managed
     ? managed.tabId
     : (await chrome.tabs.create({ url: "https://www.ligamagic.com.br/?view=dks/novo&tipo=2", active: false })).id;
-  // Only matters if isNew — the deck's permanent name is decided once, right
-  // here, and never touched again (see buildTempDeckName).
-  const deckName = isNew ? buildTempDeckName(contextName, names) : null;
-
   try {
     if (isNew) {
       await waitForTabComplete(tabId, PENDING_PRICE_TAB_TIMEOUT_MS);
@@ -1665,7 +1649,7 @@ async function scrapeBatchViaManagedDeck(names, contextName) {
     for (let round = 0; currentNames.length > 0 && round <= PENDING_PRICE_MAX_INVALID_ROUNDS; round++) {
       pendingPricesLog(`Round ${round}: submitting ${currentNames.length} name(s) to the ${isNew ? "create" : "edit"} form:`, currentNames);
       if (isNew) {
-        await fillAndSubmitCreateForm(tabId, currentNames, deckName);
+        await fillAndSubmitCreateForm(tabId, currentNames, PENDING_PRICES_DECK_NAME);
       } else {
         await fillAndSubmitEditForm(tabId, currentNames);
       }
@@ -1673,7 +1657,10 @@ async function scrapeBatchViaManagedDeck(names, contextName) {
 
       if (outcome.deckId) {
         pendingPricesLog(`Round ${round}: LigaMagic accepted the whole list — deck #${outcome.deckId}. Waiting ${PENDING_PRICE_SCRAPE_SETTLE_MS}ms for scraper-deck.js to read the prices off the page.`);
-        if (isNew) await savePendingPricesDeck({ id: outcome.deckId, name: deckName });
+        // Saved on edits too, not only on creation: an edit also (re)writes
+        // the deck's name, so an older deck created under another name is
+        // recorded under the one it carries now.
+        await savePendingPricesDeck({ id: outcome.deckId, name: PENDING_PRICES_DECK_NAME });
 
         // scraper-deck.js runs automatically as soon as the deck page's card
         // list is in the DOM — a short settle is enough, no need to poll.
@@ -1779,16 +1766,14 @@ async function fillAndSubmitCreateForm(tabId, names, deckName) {
 
 /**
  * Fills and submits the "?view=dks/editar" form for the single deck this
- * extension manages, replacing its entire card list with the current batch.
- * Every other field (name, format, privacy) is left exactly as the page
- * loaded it with — only the card list is meant to change between runs, the
- * deck's name in particular is set once at creation and never touched again
- * (see buildTempDeckName).
+ * extension manages, replacing its entire card list with the current batch
+ * and writing PENDING_PRICES_DECK_NAME as its name. Format and privacy are
+ * left exactly as the page loaded them.
  */
 async function fillAndSubmitEditForm(tabId, names) {
   await chrome.scripting.executeScript({
     target: { tabId },
-    func: (decklist) => {
+    func: (decklist, deckName) => {
       // See fillAndSubmitCreateForm's identical comment above -- same stale-
       // marker race applies to the edit form.
       document.querySelector(".close-modal")?.click();
@@ -1796,10 +1781,11 @@ async function fillAndSubmitEditForm(tabId, names) {
 
       const form = document.getElementById("formNewDeck");
       if (!form) return;
+      form.deck_nome.value = deckName;
       form.txt_deck.value = decklist;
       form.querySelector('[name="btCadDeck"]')?.click();
     },
-    args: [buildDecklistText(names)],
+    args: [buildDecklistText(names), PENDING_PRICES_DECK_NAME],
   });
 }
 

@@ -41,23 +41,23 @@
     {
       "matches": ["*://*.ligamagic.com.br/*"],
       "css": ["content.css"],
-      "js": ["content-utils.js", "detailed-format.js", "copy-options-panel.js", "nav-menu.js", "scraper-deck.js", "deck-view.js", "deck-copy-button.js", "deck-grid-prices.js", "deck-buy-modal-prices.js", "lista-defaults.js", "lista-store-scraper.js", "store-search-override.js", "lista-copy-button.js", "analise-economia.js", "super-pesquisa.js", "lista-min-price.js", "frete-caro-alert.js", "carrinho-copy-button.js", "compras-copy-button.js", "card-hover-links.js", "edition-search-filter.js", "scraper-card.js", "scraper-search.js", "content.js"]
+      "js": ["content-utils.js", "price-freshness.js", "detailed-format.js", "copy-options-panel.js", "nav-menu.js", "scraper-deck.js", "deck-view.js", "deck-copy-button.js", "deck-grid-prices.js", "deck-buy-modal-prices.js", "lista-defaults.js", "lista-store-scraper.js", "store-search-override.js", "lista-copy-button.js", "analise-economia.js", "super-pesquisa.js", "lista-min-price.js", "frete-caro-alert.js", "carrinho-copy-button.js", "compras-copy-button.js", "card-hover-links.js", "edition-search-filter.js", "scraper-card.js", "scraper-search.js", "content.js"]
     },
     {
       "matches": ["*://*.archidekt.com/*"],
-      "js": ["overlay-utils.js", "overlay-archidekt.js"]
+      "js": ["price-freshness.js", "overlay-utils.js", "overlay-archidekt.js"]
     },
     {
       "matches": ["*://*.moxfield.com/*"],
-      "js": ["overlay-utils.js", "overlay-moxfield.js"]
+      "js": ["price-freshness.js", "overlay-utils.js", "overlay-moxfield.js"]
     },
     {
       "matches": ["*://*.scryfall.com/*"],
-      "js": ["overlay-utils.js", "overlay-scryfall.js", "overlay-scryfall-tags.js", "overlay-scryfall-filter.js", "overlay-scryfall-color-pips.js", "overlay-scryfall-search.js"]
+      "js": ["price-freshness.js", "overlay-utils.js", "overlay-scryfall.js", "overlay-scryfall-tags.js", "overlay-scryfall-filter.js", "overlay-scryfall-color-pips.js", "overlay-scryfall-search.js"]
     },
     {
       "matches": ["*://*.edhrec.com/*"],
-      "js": ["overlay-utils.js", "overlay-edhrec.js"]
+      "js": ["price-freshness.js", "overlay-utils.js", "overlay-edhrec.js"]
     }
   ]
 }

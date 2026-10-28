@@ -149,7 +149,8 @@ página individual da carta
   ainda não foi registrado. Passar o mouse e
   segurar mostra uma explicação. Um botão "Carregar valores mínimos"
   aparece entre "Análise de Economia" e "Copiar Lista de Compras" sempre
-  que alguma carta da lista ainda não tiver esse valor salvo, buscando-o em
+  que alguma carta da lista ainda não tiver esse valor salvo ou o tiver
+  desatualizado (mais de 7 dias, mesmo limite do verde), buscando-o em
   lote (mesmo mecanismo de "Carregar preços pendentes"). O "Sumário Geral"
   também ganha, logo abaixo de "X Itens", o total de preços mínimos e a
   diferença para o total atual (considerando as quantidades compradas de
@@ -182,7 +183,8 @@ página individual da carta
 - Total do deck e de cada grupo (Criaturas, Feitiços, Terrenos...) recalculado
   em BRL, tanto na visão de texto quanto na visão em grade
 - Botão "Carregar preços pendentes" — busca no LigaMagic o preço de toda carta
-  que ainda não tem um valor em BRL
+  que ainda não tem um valor em BRL ou cujo valor está desatualizado (amarelo
+  ou vermelho); só preços verdes contam como já carregados
 - Clique no preço abre a página da carta no LigaMagic (opcional)
 - Cartas da seção "Tokens & Extras" do deck (tokens, emblemas etc. que o
   próprio Archidekt gera e que não fazem parte do deck de fato) ficam de fora
@@ -200,7 +202,8 @@ página individual da carta
 - Total do deck e de cada grupo recalculado em BRL, tanto nas visões de texto
   quanto nas de imagem (Visual Grid e Visual Spoiler)
 - Botão "Carregar preços pendentes" — busca no LigaMagic o preço de toda carta
-  que ainda não tem um valor em BRL
+  que ainda não tem um valor em BRL ou cujo valor está desatualizado (amarelo
+  ou vermelho); só preços verdes contam como já carregados
 - Clique no preço abre a página da carta no LigaMagic (opcional)
 
 ## Scryfall (scryfall.com)
@@ -221,7 +224,8 @@ página individual da carta
   (`as=grid`), colorido pela idade do preço (ver nota sobre cores no topo do
   arquivo)
 - Botão "Carregar preços pendentes" — busca no LigaMagic o preço de toda carta
-  que ainda não tem um valor em BRL
+  que ainda não tem um valor em BRL ou cujo valor está desatualizado (amarelo
+  ou vermelho); só preços verdes contam como já carregados
 - Botão "Comprar no LigaMagic" — primeiro item no painel nativo "Buy This
   Card" da página individual da carta
 - Clique no preço abre a página da carta no LigaMagic (opcional)

@@ -17,7 +17,7 @@ Tudo é opcional: cada recurso abaixo pode ser ligado ou desligado no painel da 
 
 - **Preço em reais no lugar do dólar.** No Archidekt e no Moxfield, o valor em USD ao lado de cada carta do deck é substituído pelo preço em R$ do LigaMagic. No Scryfall, aparece uma coluna **R$** na tabela de impressões — tanto nos resultados de busca quanto na página da carta.
 - **Total do deck e de cada grupo em R$.** Criaturas, Feitiços, Terrenos e o deck inteiro recalculados em reais, sem calculadora.
-- **"Carregar preços pendentes".** Um botão busca no LigaMagic o preço de todas as cartas do deck que ainda não têm valor em R$ — de uma vez, sem abrir carta por carta. No Scryfall também dá pra carregar o preço de uma carta específica.
+- **"Carregar preços pendentes".** Um botão busca no LigaMagic o preço de todas as cartas do deck que ainda não têm valor em R$, ou cujo valor tem mais de 7 dias — de uma vez, sem abrir carta por carta. No Scryfall também dá pra carregar o preço de uma carta específica.
 - **Clique no preço e vá direto pro LigaMagic.** A carta certa, na página certa, pronta pra comparar vendedores ou comprar. Funciona até em cartas sem preço registrado. Pode ser desligado se você preferir o preço só como informação.
 - **A cor mostra se o preço está fresco.** 🟢 menos de 7 dias · 🟡 entre 7 e 30 dias · 🔴 mais de 30 dias (consulte o LigaMagic).
 - **No Scryfall, ainda:** botão **"Comprar no LigaMagic"** como primeira opção do painel "Buy This Card", botão **"Carregar Tags"** que traz as tags do Scryfall Tagger em uma tabela, e um botão que adiciona um filtro padrão seu (ex.: `sort:edhrec`) ao campo de busca.

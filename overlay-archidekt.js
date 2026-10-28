@@ -519,14 +519,15 @@ function run() {
       updateDeckTotal(priceMap);
       applyDetailAndGridPrices(priceMap, openLigaMagicOnClick);
 
-      const missingNames = names.filter((n) => !priceMap[n]);
+      const missingNames = namesNeedingPrice(names, priceMap);
       renderPendingPricesButton({
         missingNames,
         onDone: () => {
           // applyPrices() marks every price link PROCESSED_ATTR regardless
           // of whether a price was found, so a plain re-run would skip them
           // and never pick up the price the backfill just cached — clear
-          // the marker on exactly the links whose card was missing.
+          // the marker on exactly the links whose card it refreshed (no
+          // price, or one that was out of date).
           // applyDetailAndGridPrices() needs no equivalent: it reconciles
           // each row against the pill already there, so re-running is enough
           // on its own to redraw one whose price just arrived.
@@ -538,7 +539,6 @@ function run() {
           run();
         },
         log,
-        contextName: getViewedDeckName(),
         mountAfter: findToolbarAnchor(),
         // The toolbar row already spaces its own children with a flexbox
         // "gap" (7px, measured live) rather than per-item margins like

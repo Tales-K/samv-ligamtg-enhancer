@@ -47,6 +47,11 @@ const SEL_PRINTS_TABLE = "table.prints-table";
 
 // data-attribute set on card blocks we have already processed.
 const PROCESSED_ATTR = "data-lm-scryfall-processed";
+// Marks every header/body cell of the injected R$ column, and remembers the
+// "View all prints" row's own colspan before it was widened -- so a block
+// that gets processed again rebuilds its column instead of adding a second.
+const PRICE_COL_CLASS = "lm-scryfall-brl-col";
+const COLSPAN_BASE_ATTR = "data-lm-colspan-base";
 // MTG Arena's "Rebalanced for Alchemy" stamp — Scryfall renders it as this
 // distinct element right next to (on a single card page) or inside (on a
 // search-results block) the card's name. Excluded when reading the name (see
@@ -138,6 +143,12 @@ function applyPrices(priceMap, openLigaMagicOnClick = true, blocks = document.qu
       return;
     }
 
+    // A block is processed again after a pending-prices backfill refreshes
+    // its card (run()'s onDone clears PROCESSED_ATTR for exactly those), and
+    // by then the table still carries the column from the first pass --
+    // removed here so it's rebuilt with the new price, not appended twice.
+    priceTable.querySelectorAll(`.${PRICE_COL_CLASS}`).forEach((el) => el.remove());
+
     log(
       info?.priceMin != null
         ? `${name}: preço R$ ${info.priceMin.toFixed(2)} encontrado no cache — escrevendo na coluna R$ da tabela de prints`
@@ -159,6 +170,7 @@ function applyPrices(priceMap, openLigaMagicOnClick = true, blocks = document.qu
     const headerRow = priceTable.querySelector("thead tr");
     if (headerRow) {
       const th = document.createElement("th");
+      th.className = PRICE_COL_CLASS;
       th.style.setProperty("background-color", SAMV_PURPLE, "important");
       th.style.setProperty("color", "#ffffff", "important");
       const span = document.createElement("span");
@@ -196,12 +208,16 @@ function applyPrices(priceMap, openLigaMagicOnClick = true, blocks = document.qu
       // of adding an extra cell so the row still spans correctly.
       const colspanTd = row.querySelector("td[colspan]");
       if (colspanTd) {
-        const current = parseInt(colspanTd.getAttribute("colspan") || "1", 10);
-        colspanTd.setAttribute("colspan", String(current + 1));
+        // Widened from its own original value, never from an already-widened
+        // one, so processing the block again keeps it at +1.
+        const base = colspanTd.getAttribute(COLSPAN_BASE_ATTR) ?? (colspanTd.getAttribute("colspan") || "1");
+        colspanTd.setAttribute(COLSPAN_BASE_ATTR, base);
+        colspanTd.setAttribute("colspan", String(parseInt(base, 10) + 1));
         return;
       }
 
       const td = document.createElement("td");
+      td.className = PRICE_COL_CLASS;
       // Only the "R$" header carries the purple fill. The body cells keep
       // Scryfall's own row striping/hover background and take the brand
       // purple on the text instead — !important so the site's own td color
@@ -368,10 +384,10 @@ function applyGridPrices(priceMap, openLigaMagicOnClick = true, items = document
     );
 
     // Re-run after a pending-prices backfill clears GRID_PROCESSED_ATTR on
-    // exactly the items that were missing a price (see run()) -- the old
-    // "R$ —" badge from the first pass is still sitting in the DOM at that
-    // point, so it's removed here rather than left behind under a second,
-    // newly-priced one.
+    // exactly the items it refreshed (see run()) -- the badge from the first
+    // pass ("R$ —", or an out-of-date price) is still sitting in the DOM at
+    // that point, so it's removed here rather than left behind under a
+    // second, newly-priced one.
     item.querySelector(`.${GRID_BADGE_CLASS}`)?.remove();
 
     const badge = document.createElement(openLigaMagicOnClick ? "a" : "div");
@@ -517,7 +533,7 @@ function run() {
       applyPrices(priceMap, openLigaMagicOnClick);
       applyGridPrices(priceMap, openLigaMagicOnClick);
 
-      const missingNames = names.filter((n) => !priceMap[n]);
+      const missingNames = namesNeedingPrice(names, priceMap);
       waitForFilterControls((filterControls) => {
         renderPendingPricesButton({
           missingNames,
@@ -525,7 +541,8 @@ function run() {
             // applyPrices()/applyGridPrices() mark every block/tile processed
             // regardless of whether a price was found, so a plain re-run
             // would skip them and never pick up the price the backfill just
-            // cached — clear the marker on exactly the ones that were missing.
+            // cached — clear the marker on exactly the ones it refreshed
+            // (no price, or one that was out of date).
             document.querySelectorAll(SEL_CARD_BLOCK).forEach((block) => {
               const name = cardNameOf(block.querySelector(SEL_CARD_NAME));
               if (name && missingNames.includes(name)) block.removeAttribute(PROCESSED_ATTR);
