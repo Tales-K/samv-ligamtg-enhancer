@@ -58,7 +58,8 @@ página individual da carta
   desaparece ao mover o mouse em direção aos botões
 - Preço Mín/Méd/Máx (quando disponível) na caixa do hover, lado a lado numa
   linha só, coloridos por identidade (ver nota sobre cores no topo do
-  arquivo) — fundo esbranquiçado atrás do texto para facilitar a leitura
+  arquivo, em tons mais claros das mesmas cores) — fundo cinza-ardósia atrás
+  do texto para facilitar a leitura e separá-lo da lista de cartas
 
 ### Página individual da carta — `?view=cards/card&card=...`
 - Lupa roxa ao passar o mouse sobre uma versão na lista de versões — clicar

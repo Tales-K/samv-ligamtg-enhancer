@@ -162,6 +162,15 @@ function updateCardLinks(box, name) {
 // ── Card-hover price line ────────────────────────────────────────────────────
 const CARD_HOVER_PRICE_ID = "lm-ext-card-hover-price";
 
+// The hover line sits on a mid slate gray (see injectCardHoverPriceLine), so
+// it uses lighter tints of the shared min/avg/max green/yellow/red: the base
+// colors are tuned for white backgrounds, and on this gray the red would drop
+// to about 2:1. Same three hues, same meaning; each tint stays above 4.3:1.
+const CARD_HOVER_PRICE_BG = "#3f444d";
+const CARD_HOVER_PRICE_MIN_COLOR = "#4ade80";
+const CARD_HOVER_PRICE_AVG_COLOR = "#facc15";
+const CARD_HOVER_PRICE_MAX_COLOR = "#ff8a8a";
+
 function fmtBRL(value) {
   return `R$ ${value.toFixed(2).replace(".", ",")}`;
 }
@@ -174,9 +183,9 @@ function fmtBRL(value) {
  */
 function buildCardPriceParts(info) {
   return [
-    [info.priceMin, SAMV_PRICE_MIN_COLOR],
-    [info.priceAvg, SAMV_PRICE_AVG_COLOR],
-    [info.priceMax, SAMV_PRICE_MAX_COLOR],
+    [info.priceMin, CARD_HOVER_PRICE_MIN_COLOR],
+    [info.priceAvg, CARD_HOVER_PRICE_AVG_COLOR],
+    [info.priceMax, CARD_HOVER_PRICE_MAX_COLOR],
   ].filter(([value]) => value != null);
 }
 
@@ -199,9 +208,9 @@ function injectCardHoverPriceLine(box) {
     justifyContent: "center",
     fontSize: "12px",
     fontWeight: "700",
-    // Whitish backing so the text stays readable regardless of whatever's
-    // behind the hover preview at that point on the page.
-    background: "rgba(255, 255, 255, 0.92)",
+    // Solid gray backing: keeps the text readable regardless of what's behind
+    // the hover preview and stands apart from the white card list.
+    background: CARD_HOVER_PRICE_BG,
     borderRadius: "4px",
   });
 
@@ -241,7 +250,7 @@ function updateCardHoverPrice(box, name) {
         const spacer = document.createElement("span");
         spacer.textContent = "•";
         spacer.style.margin = "0 6px";
-        spacer.style.color = "#999";
+        spacer.style.color = "#aab0ba";
         line.appendChild(spacer);
       }
       const span = document.createElement("span");

@@ -41,8 +41,9 @@ function buildDeckPriceMap(deckId) {
 /**
  * Min/avg/max side by side on one line, colored green/yellow/red so the
  * three stay tellable apart without needing a "Mín/Méd/Máx" label in front
- * of each one — same identity colors used for the card-hover price line
- * (card-hover-links.js's buildCardPriceParts).
+ * of each one — same green/yellow/red identity as the card-hover price line
+ * (card-hover-links.js's buildCardPriceParts, which uses lighter tints of
+ * these hues for its gray background).
  */
 function buildPriceBlock(prices) {
   const block = document.createElement("div");

@@ -1,77 +1,106 @@
-# SAMV LigaMtg Enhancer
+<p align="center"><img src="icon-128.png" width="112" alt="Ícone do SAMV LigaMtg Enhancer"></p>
 
-**Preço em reais do LigaMagic nos sites onde você monta seus decks — e um LigaMagic mais rápido de usar.**
+<h1 align="center">SAMV LigaMtg Enhancer</h1>
 
-O **SAMV LigaMtg Enhancer** é uma extensão de navegador de **código aberto**, feita pela **Sociedade Amigos do Vale (SAMV)** para a comunidade de jogadores.
+<p align="center"><b>Preço em reais do LigaMagic no Moxfield, no Archidekt e no Scryfall, e ferramentas para economizar na Compra por Lista do LigaMagic.</b></p>
 
-Ela faz duas coisas:
+<p align="center">
+  <a href="https://chromewebstore.google.com/detail/samv-ligamtg-enhancer/maibnamkhohnboboioamggemkehhiekl"><img alt="Chrome Web Store" src="https://img.shields.io/chrome-web-store/v/maibnamkhohnboboioamggemkehhiekl?label=Chrome%20Web%20Store"></a>
+  <a href="https://chromewebstore.google.com/detail/samv-ligamtg-enhancer/maibnamkhohnboboioamggemkehhiekl"><img alt="Usuários" src="https://img.shields.io/chrome-web-store/users/maibnamkhohnboboioamggemkehhiekl?label=usu%C3%A1rios"></a>
+  <a href="https://chromewebstore.google.com/detail/samv-ligamtg-enhancer/maibnamkhohnboboioamggemkehhiekl"><img alt="Avaliação" src="https://img.shields.io/chrome-web-store/rating/maibnamkhohnboboioamggemkehhiekl?label=avalia%C3%A7%C3%A3o"></a>
+  <a href="LICENSE"><img alt="Licença MIT" src="https://img.shields.io/badge/licen%C3%A7a-MIT-blue"></a>
+</p>
 
-1. **Mostra o preço em R$ do LigaMagic direto no Archidekt, Moxfield e Scryfall** — você monta o deck onde já monta e vê, na mesma tela, quanto ele custa no Brasil.
-2. **Melhora o próprio LigaMagic** — menu do seu jeito, deck ordenado por preço, filtros de compra prontos, cópia de listas em um clique e uma análise de quanto dá pra economizar na hora de fechar o carrinho.
+<p align="center"><a href="https://chromewebstore.google.com/detail/samv-ligamtg-enhancer/maibnamkhohnboboioamggemkehhiekl"><b>Instalar na Chrome Web Store</b></a></p>
 
-Tudo é opcional: cada recurso abaixo pode ser ligado ou desligado no painel da extensão.
-
----
-
-## Preço em R$ no Archidekt, Moxfield e Scryfall
-
-- **Preço em reais no lugar do dólar.** No Archidekt e no Moxfield, o valor em USD ao lado de cada carta do deck é substituído pelo preço em R$ do LigaMagic. No Scryfall, aparece uma coluna **R$** na tabela de impressões — tanto nos resultados de busca quanto na página da carta.
-- **Total do deck e de cada grupo em R$.** Criaturas, Feitiços, Terrenos e o deck inteiro recalculados em reais, sem calculadora.
-- **"Carregar preços pendentes".** Um botão busca no LigaMagic o preço de todas as cartas do deck que ainda não têm valor em R$, ou cujo valor tem mais de 7 dias — de uma vez, sem abrir carta por carta. No Scryfall também dá pra carregar o preço de uma carta específica.
-- **Clique no preço e vá direto pro LigaMagic.** A carta certa, na página certa, pronta pra comparar vendedores ou comprar. Funciona até em cartas sem preço registrado. Pode ser desligado se você preferir o preço só como informação.
-- **A cor mostra se o preço está fresco.** 🟢 menos de 7 dias · 🟡 entre 7 e 30 dias · 🔴 mais de 30 dias (consulte o LigaMagic).
-- **No Scryfall, ainda:** botão **"Comprar no LigaMagic"** como primeira opção do painel "Buy This Card", botão **"Carregar Tags"** que traz as tags do Scryfall Tagger em uma tabela, e um botão que adiciona um filtro padrão seu (ex.: `sort:edhrec`) ao campo de busca.
+*Projeto independente e sem fins lucrativos da Sociedade Amigos do Vale (SAMV), para a comunidade de Magic: The Gathering. Compatível com LigaMagic, Moxfield, Archidekt, Scryfall e EDHREC, sem vínculo com nenhum deles.*
 
 ---
 
-## No LigaMagic
+## Seu deck em reais no Moxfield e no Archidekt
 
-### Compra por Lista — onde o dinheiro é decidido
-- **Análise de Economia.** Três seções: quanto você economizaria deixando de comprar cada carta cara (considerando o frete), quanto economizaria comprando as mesmas cartas em outra loja para fechar uma loja inteira sem deixar nada de fora, e quais lojas têm frete acima do valor que você configurar. Uma legenda embaixo do botão avisa automaticamente quanto dá pra economizar por reorganização (sem remover nenhuma carta) assim que o frete termina de calcular, mesmo antes de abrir a análise — já considerando que aplicar uma reorganização pode mudar o que as outras ainda valem. Cada sugestão de reorganização ou de "deixar de comprar uma carta" tem um botão **Aplicar Economia** que ajusta as quantidades na tela de resultados pra realizar aquela sugestão e recalcula tudo de novo, e um botão **Aplicar Economia** no rodapé da modal aplica de uma vez todas as reorganizações possíveis, na combinação que dá o máximo de economia.
-- **Super Pesquisa.** Abre uma nova aba e refaz a mesma lista numa pesquisa mais ampla — misturando suas cartas com cartas de decks públicos recentes só de preenchimento (nunca compradas) pra forçar o LigaMagic a considerar mais lojas do que uma busca pequena veria sozinha — e então repete uma busca limpa, só com as suas cartas, restrita às lojas que apareceram. A extensão detecta sozinha se você tinha fixado versões exatas por carta ou usado só o filtro geral, e usa o mesmo modo na nova busca. Ao terminar, aplica na nova aba toda economia por reorganização possível e mostra uma comparação dos totais antes/depois, com/sem reorganização; a aba original não é alterada, só ganha um aviso de quanto a Super Pesquisa economizou.
-- **Alerta de frete caro.** Destaca em vermelho o frete de uma loja acima do valor configurado (padrão R$ 35) e mostra um aviso sugerindo bloquear a loja e pesquisar de novo.
-- **Filtros que já vêm prontos.** Idiomas, extras, qualidade e as opções de "ignorar sem estoque" / "ignorar pré-venda" aplicados automaticamente ao carregar a página. Se preferir, a extensão só lembra da sua última seleção manual — e há um botão **"Carregar filtro padrão"** pra aplicar sob demanda.
-- **Busca em lojas customizadas.** Cole o nome, a URL ou o ID de qualquer loja da Liga pra incluí-la na busca, sem mexer nos seus favoritos reais. As lojas ficam salvas numa lista própria, prontas pra marcar ou desmarcar depois.
-- **Copiar Lista de Compras.** Um botão ao lado de "Finalizar Compra" copia as cartas que sobraram no resultado (já refletindo o que você removeu na tela), separadas por loja, em formato de lista de Magic — o comentário de cada loja já traz o ID dela e, quando conhecido, o site. Opcionalmente com versão, qualidade, idioma e preço.
+![Deck do Moxfield com o preço em reais de cada carta e o total do deck](docs/images/moxfield.webp)
 
-### Página do deck
-- **Aba "Preço".** Ordena as cartas do deck por valor, sem misturar mainboard, sideboard e maybeboard. Dá pra escolher qual aba abre automaticamente em todo deck.
-- **Botão "Copiar Deck".** A lista completa na área de transferência em um clique, em texto puro.
-- **Preço no modal "Comprar Deck".** Mostra o valor de cada carta e agrupa por faixa de preço, da mais barata à mais cara, sem misturar maindeck e sideboard.
-- **Remover o botão "Gerar Imagem"**, se você não usa.
+- **Preço do LigaMagic em cada carta**, no lugar do dólar: na lista do deck, na visão em grade do Archidekt e no Visual Spoiler do Moxfield.
+- **Total do deck e de cada grupo** (Criaturas, Feitiços, Terrenos…) em reais.
+- **"Carregar preços pendentes"**: busca de uma vez os preços que faltam ou passaram de 7 dias. É preciso estar logado no LigaMagic.
+- **A cor mostra a idade do preço**: verde até 7 dias, amarelo de 7 a 30, vermelho acima de 30.
+- **"Comprar no LigaMagic"** no preview e no modal de carta do Moxfield; clicar no preço abre a carta no LigaMagic (opcional).
 
-### Menu e navegação
-- Adicionar as abas **"Meus Decks"** e **"Meus Pedidos"** no menu principal.
-- Remover as abas **"Leilões"** e **"Fórum"**.
+![Deck do Archidekt com preços em reais por carta e por grupo](docs/images/archidekt.webp)
 
-### Prévia da carta (hover) e carrinho
-- Ao passar o mouse sobre o nome de uma carta — no deck, em "Meus Decks" ou na página da carta — aparecem os botões **Scryfall**, **EDHREC** e **Copiar nome**, e o preço mostrado na prévia ganha um fundo claro que facilita a leitura.
-- No carrinho, o botão **"Copiar Lista"** copia os itens no formato detalhado do LigaMagic (edição, qualidade, idioma, extras) — o comentário de cada loja já traz o ID dela e, quando conhecido, o site.
+## Preço em R$ no Scryfall
 
----
+![Busca em grade do Scryfall com o preço em reais embaixo de cada carta](docs/images/scryfall.webp)
+
+- Selo de preço em R$ na busca em grade e coluna **R$** na tabela de impressões.
+- **"Comprar no LigaMagic"** como primeira opção do painel "Buy This Card".
+
+### Atalhos extras no Scryfall
+
+![Cabeçalho do Scryfall com pipetas de cor e painel do filtro padrão, botões Carregar Tags e Carregar Preço, e tabela de tags](docs/images/scryfall-extras.webp)
+
+- **Pipetas de identidade de cor** (W/U/B/R/G) ao lado da busca: um clique põe ou tira `ci:<cor>`, e a pipeta acende quando o termo já está no campo.
+- **Lupa-link**: o ícone de busca abre a pesquisa numa aba nova com ctrl+clique ou clique do meio.
+- **Filtro padrão**: um botão acrescenta seu filtro (ex.: `sort:edhrec legal:commander`) à busca; a engrenagem ao lado edita o filtro sem sair do Scryfall.
+- **"Carregar Tags"**: traz as tags do Scryfall Tagger numa tabela na página da carta.
+- **"Carregar Preço"**: busca o preço em R$ de uma carta que ainda não mostra a coluna R$.
+
+## Economize na Compra por Lista do LigaMagic
+
+![Análise de Economia mostrando quanto dá pra economizar fechando lojas](docs/images/analise-economia.webp)
+
+- **Análise de Economia**: mostra quais lojas dá pra fechar comprando as mesmas cartas em outras lojas da compra, quais cartas caras valem a pena tirar e quais fretes estão acima do seu limite. **"Economizar nessa compra"** aplica a melhor combinação, e a análise se refaz quando a lista muda.
+- **Super Pesquisa**: refaz a lista numa pesquisa mais ampla, em mais lojas, atrás de um total menor, e pergunta antes de trocar.
+
+![Resultado da Super Pesquisa: mesmas cartas em outras lojas, com o total menor e a economia](docs/images/super-pesquisa.webp)
+
+- **Coluna "Preço Mínimo"**: quanto cada oferta está acima do menor preço que você já viu daquela carta.
+
+![Coluna Preço Mínimo na tabela de uma loja](docs/images/preco-minimo.webp)
+
+- **Alerta de frete caro**, **filtros que já vêm prontos** (idioma, extras, qualidade, sem estoque, pré-venda), **lojas extras na busca** (cole nome, URL ou ID da loja) e **"Copiar Lista de Compras"** separada por loja.
+
+## No resto do LigaMagic
+
+![Deck do LigaMagic ordenado por preço, com a prévia da carta mostrando mínimo, médio e máximo e botões Scryfall, EDHREC e Copiar nome](docs/images/ligamagic-deck.webp)
+
+- **Página do deck**: aba "Preço" com as cartas ordenadas por valor, Mín/Méd/Máx na visão "Grid", preço no modal "Comprar Deck" e botão "Copiar Deck".
+- **Prévia da carta**: botões Scryfall, EDHREC e Copiar nome, com Mín/Méd/Máx.
+- **Página da carta**: lupa que filtra as lojas por edição.
+- **Copiar** o carrinho e cada pedido de "Meus Pedidos" em um clique.
+- **Menu**: abas "Meus Decks" e "Meus Pedidos"; esconda "Leilões" e "Fórum".
+
+## Em qualquer site
+
+- Selecione o nome de uma carta, clique com o botão direito e use **"Pesquisar carta"** para abrir no LigaMagic, no Scryfall ou no EDHREC.
+- No **EDHREC**, a página do comandante ganha um botão **"Ver no LigaMagic"**.
 
 ## Tudo no seu controle
 
-O ícone da extensão abre um painel onde cada recurso acima é ligado, desligado ou ajustado individualmente — incluindo a aba padrão do deck, o comportamento dos filtros da Compra por Lista e o filtro padrão do Scryfall. O painel também mostra quantas cartas tiveram o preço salvo hoje, o total de atualizações e as lojas já conhecidas. (Clicando no número da versão, no rodapé, aparece uma opção de logs de diagnóstico usada durante o desenvolvimento.)
+![Painel da extensão com um botão para cada recurso](docs/images/painel.webp)
 
----
+O ícone da extensão abre um painel com um botão para cada recurso, a aba padrão do deck, os filtros da Compra por Lista e o filtro do Scryfall. (Clicando no número da versão aparece uma opção de logs de diagnóstico.)
 
-## Funciona onde você já joga
+## Como usar
 
-| Site | Recursos |
-|---|---|
-| [LigaMagic](https://www.ligamagic.com.br) | Menu, página de deck, prévia da carta, Compra por Lista, carrinho |
-| [Archidekt](https://archidekt.com) | Preço em R$, totais do deck, preços pendentes |
-| [Moxfield](https://moxfield.com) | Preço em R$, totais do deck, preços pendentes |
-| [Scryfall](https://scryfall.com) | Coluna R$, preços pendentes, compra no LigaMagic, tags, filtro de busca |
-| [EDHREC](https://edhrec.com) | Link direto pra página da carta no LigaMagic |
+1. [Instale pela Chrome Web Store](https://chromewebstore.google.com/detail/samv-ligamtg-enhancer/maibnamkhohnboboioamggemkehhiekl).
+2. Abra um deck no Moxfield ou no Archidekt e clique em **"Carregar preços pendentes"** (logado no LigaMagic).
+3. Ajuste o que quiser no painel da extensão.
 
----
+## Perguntas frequentes
 
-## Código aberto
+**O que é o SAMV LigaMtg Enhancer?** Uma extensão gratuita e de código aberto para Google Chrome que mostra preços de cartas de Magic: The Gathering (MTG) em reais, com valores do LigaMagic, no Moxfield, no Archidekt e no Scryfall, e adiciona ferramentas de compra ao LigaMagic. Feita pela Sociedade Amigos do Vale (SAMV).
 
-O código é aberto e pode ser auditado por qualquer pessoa, a qualquer momento:
-**https://github.com/Tales-K/samv-ligamtg-enhancer**
+**Como ver o preço em reais de um deck do Moxfield?** Com a extensão instalada, abra o deck no Moxfield: cada carta mostra o preço em R$ do LigaMagic e o total aparece em reais. Para cartas sem preço salvo, clique em "Carregar preços pendentes" logado no LigaMagic.
+
+**Funciona no Archidekt e no Scryfall?** Sim. No Archidekt, o preço em R$ aparece em cada carta e nos totais do deck; no Scryfall, na busca em grade e na tabela de impressões; no EDHREC, há um link para a carta no LigaMagic.
+
+**De onde vêm os preços?** Do LigaMagic. A extensão guarda no seu navegador os preços que você vê no site ou busca com "Carregar preços pendentes". Não existe base de preços compartilhada entre usuários.
+
+**Como economizar frete na Compra por Lista do LigaMagic?** Depois de pesquisar, o botão "Análise de Economia" mostra quais lojas podem ser fechadas comprando as mesmas cartas em outras lojas da compra, e quanto isso economiza; "Economizar nessa compra" aplica a melhor combinação.
+
+**É grátis? É oficial?** É gratuita, sem anúncios e sem cadastro. Não é oficial: é um projeto independente, sem vínculo com LigaMagic, Moxfield, Archidekt, Scryfall, EDHREC ou Wizards of the Coast.
 
 ---
 
@@ -89,8 +118,12 @@ Esta extensão **não contém links de afiliados** e **não gera nenhuma receita
 
 Magic: The Gathering é marca registrada da Wizards of the Coast LLC. "LigaMagic" é marca de titularidade da LigaMagic Portal de Compras LTDA. Esta extensão não é produzida, endossada ou afiliada a nenhuma das duas. O nome é citado apenas para identificar com qual site a extensão é compatível.
 
----
-
 ## Privacidade
 
 Nenhum dado pessoal é coletado, transmitido a terceiros ou armazenado fora do seu navegador. Tudo — preços, configurações e histórico do dia — roda e fica salvo localmente no seu próprio navegador.
+
+## Desenvolvimento e contribuição
+
+O código é aberto e pode ser auditado por qualquer pessoa. Para testar sem a loja: em `chrome://extensions`, ative o **Modo do desenvolvedor**, clique em **Carregar sem compactação** e escolha esta pasta. Não há etapa de build.
+
+Sugestões e relatos de erro: [abra uma issue](https://github.com/Tales-K/samv-ligamtg-enhancer/issues/new). Licença [MIT](LICENSE).
