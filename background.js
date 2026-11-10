@@ -387,6 +387,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     handleSyncCustomStoreIds(request.storeIds, sender.tab?.id).then(sendResponse);
     return true;
   }
+  if (request.action === "marcarRetiradaNoBalcao") {
+    handleMarcarRetiradaNoBalcao(sender.tab?.id).then(sendResponse);
+    return true;
+  }
   if (request.action === "getListaResultado") {
     handleGetListaResultado(sender.tab?.id).then(sendResponse);
     return true;
@@ -1017,6 +1021,62 @@ async function handleSyncCustomStoreIds(storeIds, tabId) {
     args: [Array.isArray(storeIds) ? storeIds : []],
   });
   return { ok: true };
+}
+
+/**
+ * Marks which shipping options on the "Compra por Lista" results are an
+ * in-person pickup, so super-pesquisa.js (isolated world) can tell them
+ * apart from a delivery option -- including a free one. The site gets every
+ * store's options in one response (`opc=frete`), each with its own type;
+ * type 4 is pickup (the same check the site's own getHtmlFrete uses for its
+ * "exclusivamente para retirada no balcão" notice). The rendered HTML
+ * doesn't carry that type, so this wraps the callback that renders the
+ * options and, right after it, flags each pickup option with
+ * `data-lgm-retirada` and each store's list with `data-lgm-tipos-frete`.
+ * Reads the response the page already received; sends nothing.
+ *
+ * Idempotent; must run in the page's MAIN world (CardsOrcamento is a page
+ * global) before shipping is calculated.
+ */
+async function handleMarcarRetiradaNoBalcao(tabId) {
+  if (tabId == null) return { error: "Aba de origem não encontrada." };
+  try {
+    const [res] = await chrome.scripting.executeScript({
+      target: { tabId },
+      world: "MAIN",
+      func: () => {
+        if (typeof CardsOrcamento === "undefined" || typeof CardsOrcamento.callbackAtualizaFrete !== "function") {
+          return { ok: false, motivo: "CardsOrcamento.callbackAtualizaFrete não encontrado" };
+        }
+        if (CardsOrcamento.__lgmRetiradaWrapped) return { ok: true };
+        CardsOrcamento.__lgmRetiradaWrapped = true;
+
+        const TIPO_RETIRADA = 4;
+        const original = CardsOrcamento.callbackAtualizaFrete;
+        CardsOrcamento.callbackAtualizaFrete = function (erro, resposta) {
+          const retorno = original.call(this, erro, resposta);
+          let dados = [];
+          try {
+            dados = erro ? [] : (JSON.parse(resposta)?.dados ?? []);
+          } catch {
+            dados = [];
+          }
+          for (const opcao of dados) {
+            const lista = document.getElementById(`frete_${opcao.bloco}`);
+            if (!lista) continue;
+            lista.setAttribute("data-lgm-tipos-frete", "");
+            if (Number(opcao.iTipo) !== TIPO_RETIRADA) continue;
+            lista.querySelector(`[id="dvfrete_${opcao.id}"]`)?.setAttribute("data-lgm-retirada", "");
+          }
+          return retorno;
+        };
+        return { ok: true };
+      },
+    });
+    return res?.result ?? { ok: false, motivo: "sem resultado do executeScript" };
+  } catch (err) {
+    return { ok: false, motivo: err.message };
+  }
 }
 
 /**
@@ -2554,6 +2614,7 @@ async function driveSuperPesquisaSearch(tabId, initialLines, { filtros, scopedSt
         tipoFiltroAntes = await readTipoFiltroAtual(tabId);
         capturouTipoFiltro = true;
       }
+      await handleMarcarRetiradaNoBalcao(tabId);
       await submitSearchStep(tabId, scopedStoreIds);
 
       const outcome = await waitForSearchOutcome(tabId, SUPER_PESQUISA_SEARCH_TIMEOUT_MS);
@@ -2566,8 +2627,20 @@ async function driveSuperPesquisaSearch(tabId, initialLines, { filtros, scopedSt
         // false "savings" that doesn't survive a moment later once frete
         // settles.
         await waitForFreteCalculado(tabId, SUPER_PESQUISA_SEARCH_TIMEOUT_MS);
+        // The site pre-selects each store's first shipping option, often an
+        // in-person pickup; the Super Pesquisa counts the cheapest delivery
+        // option instead (see superPesquisaTrocarRetirada in
+        // super-pesquisa.js, which runs in this same isolated world).
+        const [troca] = await chrome.scripting.executeScript({
+          target: { tabId },
+          func: () => superPesquisaTrocarRetirada(),
+        });
         const resultado = await handleGetListaResultado(tabId);
-        return { ok: true, resultado };
+        const soRetirada = (troca?.result?.soRetirada ?? [])
+          .map((bloco) => resultado?.[bloco])
+          .filter((bloco) => bloco?.loja != null)
+          .map((bloco) => ({ id: String(bloco.loja), nome: bloco.nomeLoja ?? String(bloco.loja) }));
+        return { ok: true, resultado, soRetirada };
       }
 
       if (outcome.notFoundBlob && attempt < SUPER_PESQUISA_MAX_RETRIES) {
@@ -2628,7 +2701,7 @@ const SUPER_PESQUISA_PLANO_OFERTAS_POR_CARTA = 8;
  * supply it, which is worse than not planning. Callers fall back to the
  * whole discovered pool in that case.
  */
-function mapaDeOfertasDaDescoberta(resultado, targetLines) {
+function mapaDeOfertasDaDescoberta(resultado, targetLines, lojasExcluidas = new Set()) {
   const desejadas = new Map(); // nome normalizado -> índice da carta
   const cartas = [];
   for (const line of targetLines) {
@@ -2656,6 +2729,8 @@ function mapaDeOfertasDaDescoberta(resultado, targetLines) {
     // Só ela sai, não o plano inteiro: se ela era a única fonte de alguma
     // carta, essa carta fica sem oferta e o plano cai fora logo abaixo.
     if (typeof bloco.frete !== "number" || Number.isNaN(bloco.frete)) continue;
+    // Same for a store that only offers pickup (see the discovery step).
+    if (lojasExcluidas.has(String(bloco.loja))) continue;
     const j = lojas.length;
     lojas.push({ id: String(bloco.loja), nome: bloco.nomeLoja, frete: Math.round(bloco.frete * 100) });
     indicePorBloco.set(bloco, j);
@@ -2847,8 +2922,8 @@ function escolherLojasDoPlano(cartas, fretes, tentativas = SUPER_PESQUISA_PLANO_
  * map can't be built or no viable set exists, so the caller keeps the old
  * behaviour of searching the whole discovered pool.
  */
-function planejarLojasDaCompra(resultado, targetLines) {
-  const mapa = mapaDeOfertasDaDescoberta(resultado, targetLines);
+function planejarLojasDaCompra(resultado, targetLines, lojasExcluidas) {
+  const mapa = mapaDeOfertasDaDescoberta(resultado, targetLines, lojasExcluidas);
   if (!mapa) return null;
   const escolha = escolherLojasDoPlano(
     mapa.cartas,
@@ -3000,8 +3075,15 @@ async function handleStartSuperPesquisa(payload, originTabId) {
     // over repeatedly poking at an already-placed result one card at a time,
     // which forces LigaMagic's own frete recalculation on every single edit.
     superPesquisaProgresso(originTabId, 4);
-    const storeIds = harvestStoreIds(discovery.resultado);
-    const plano = planejarLojasDaCompra(discovery.resultado, targetLines);
+    // Stores whose only shipping option is an in-person pickup have no
+    // delivery cost to compare, so they stay out of the final search.
+    const excluidas = new Set(discovery.soRetirada.map((l) => l.id));
+    if (excluidas.size > 0) {
+      superPesquisaLog(`Fora da busca final por só oferecerem retirada no balcão: ${discovery.soRetirada.map((l) => l.nome).join(", ")}.`);
+    }
+    superPesquisaContextByTabId.get(tab.id).lojasSoRetiradaExcluidas = discovery.soRetirada.map((l) => l.nome);
+    const storeIds = harvestStoreIds(discovery.resultado).filter((id) => !excluidas.has(id));
+    const plano = planejarLojasDaCompra(discovery.resultado, targetLines, excluidas);
     if (plano) {
       superPesquisaLog(
         `Descoberta encontrou ${storeIds.length} loja(s); o plano escolheu ${plano.storeIds.length} ` +
@@ -3064,13 +3146,18 @@ async function handleStartSuperPesquisa(payload, originTabId) {
  */
 async function handleSuperPesquisaReorgApplied(request, senderTabId) {
   if (senderTabId == null) return;
-  const { context, totalComReorgDepois } = request;
+  const { context, totalComReorgDepois, lojasSoRetirada = [], fretesTrocados = [] } = request;
   const resultado = await handleGetListaResultado(senderTabId);
   const lojas = harvestStores(resultado);
+  if (lojasSoRetirada.length > 0) {
+    superPesquisaLog(
+      `Resultado final inclui loja(s) que só oferecem retirada no balcão (frete contado pelo valor da retirada): ${lojasSoRetirada.join(", ")}.`,
+    );
+  }
 
   if (context === "applyToOrigin") {
     chrome.tabs
-      .sendMessage(senderTabId, { action: "superPesquisaAppliedHere", ok: true, totalComReorgDepois, lojas })
+      .sendMessage(senderTabId, { action: "superPesquisaAppliedHere", ok: true, totalComReorgDepois, lojas, fretesTrocados })
       .catch(() => {});
     return;
   }
@@ -3094,6 +3181,8 @@ async function handleSuperPesquisaReorgApplied(request, senderTabId) {
         totalComReorgDepois,
         economia,
         lojas,
+        lojasSoRetiradaExcluidas: ctx.lojasSoRetiradaExcluidas ?? [],
+        fretesTrocados,
       })
       .catch(() => {});
   }

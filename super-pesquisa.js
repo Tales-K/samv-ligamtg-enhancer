@@ -118,6 +118,142 @@ function superPesquisaEsperarFreteCalculado(timeoutMs = 12_000, intervalMs = 400
   });
 }
 
+// ── Retirada no balcão ──────────────────────────────────────────────────────
+/**
+ * After shipping is calculated the site auto-selects each store's first
+ * option, which is often "Retirada no Balcão" (pickup in person, usually
+ * R$ 0,00). Counted as-is, that makes a far-away store look like it ships
+ * for free, so the Super Pesquisa never counts a pickup option: it uses the
+ * store's cheapest delivery option instead -- which may itself be R$ 0,00
+ * when the store gives free shipping, and that is counted as such. Stores
+ * that offer only pickup are reported back so they can be left out.
+ *
+ * Which options are pickup comes from the site's own shipping data (the
+ * option type it also uses for its "exclusivamente para retirada no balcão"
+ * notice), marked onto each option as `data-lgm-retirada` by background.js's
+ * handleMarcarRetiradaNoBalcao; each store's shipping list gets
+ * `data-lgm-tipos-frete` once its options have been read, so a list rendered
+ * before the marking was in place is told apart from one with no pickup.
+ *
+ * Choosing an option is a local radio click on the store's own shipping list
+ * -- the site only updates that store's totals on screen, it sends nothing.
+ */
+
+/** "R$ 1.234,56" → 1234.56; zero stays zero (unlike content-utils' parsePrice, which reads zero as "no price"). */
+function superPesquisaValorFrete(texto) {
+  const valor = parseFloat(String(texto ?? "").replace(/[^\d,]/g, "").replace(",", "."));
+  return Number.isFinite(valor) ? valor : null;
+}
+
+/** The shipping options the site rendered for one store block, as [{ input, valor, retirada }]. */
+function superPesquisaOpcoesDeFrete(container) {
+  return [...container.querySelectorAll(".frete-opcao")]
+    .map((opcao) => ({
+      input: opcao.querySelector("input.input-frete"),
+      valor: superPesquisaValorFrete(opcao.querySelector(".frete-valor")?.textContent),
+      retirada: opcao.hasAttribute("data-lgm-retirada"),
+    }))
+    .filter((o) => o.input && o.valor != null);
+}
+
+/**
+ * Every store block's shipping list on screen, keyed by block index (the
+ * same index CardsOrcamento.item.resultado uses). Lists whose option types
+ * were never read are skipped -- and logged -- since there is no telling
+ * which of their options is pickup.
+ */
+function superPesquisaBlocosDeFrete() {
+  const blocos = [];
+  for (const el of document.querySelectorAll('[id^="frete_"]')) {
+    if (!/^frete_\d+$/.test(el.id)) continue;
+    const bloco = Number(el.id.slice("frete_".length));
+    const opcoes = superPesquisaOpcoesDeFrete(el);
+    if (opcoes.length === 0) continue;
+    if (!el.hasAttribute("data-lgm-tipos-frete")) {
+      logNotShown(
+        "Super Pesquisa — retirada no balcão",
+        `bloco ${bloco}: tipos das formas de envio não foram lidos (frete calculado antes da extensão carregar?) — frete mantido como está`,
+      );
+      continue;
+    }
+    blocos.push({ bloco, opcoes });
+  }
+  return blocos;
+}
+
+/** Cheapest option that isn't pickup, or null when every option is pickup. */
+function superPesquisaMenorFreteComEntrega(opcoes) {
+  return opcoes.filter((o) => !o.retirada).reduce((menor, o) => (!menor || o.valor < menor.valor ? o : menor), null);
+}
+
+/**
+ * Moves every store whose selected option is pickup to its cheapest
+ * delivery option, on screen. Returns the block indexes it switched and the
+ * ones that offer only pickup (left as they were). Also called by
+ * background.js via chrome.scripting (same isolated world as this file).
+ */
+function superPesquisaTrocarRetirada() {
+  const trocados = [];
+  const soRetirada = [];
+  for (const { bloco, opcoes } of superPesquisaBlocosDeFrete()) {
+    const selecionada = opcoes.find((o) => o.input.checked);
+    if (selecionada && !selecionada.retirada) continue;
+    const entrega = superPesquisaMenorFreteComEntrega(opcoes);
+    if (!entrega) {
+      soRetirada.push(bloco);
+      continue;
+    }
+    entrega.input.click();
+    trocados.push(bloco);
+  }
+  return { trocados, soRetirada };
+}
+
+/** Stores currently on a delivery option while also offering pickup -- i.e. the ones superPesquisaTrocarRetirada moved -- as [{ bloco, valor }]. */
+function superPesquisaFretesSemRetirada() {
+  return superPesquisaBlocosDeFrete()
+    .map(({ bloco, opcoes }) => ({ bloco, opcoes, selecionada: opcoes.find((o) => o.input.checked) }))
+    .filter(({ opcoes, selecionada }) => selecionada && !selecionada.retirada && opcoes.some((o) => o.retirada))
+    .map(({ bloco, selecionada }) => ({ bloco, valor: selecionada.valor }));
+}
+
+/**
+ * Same correction as superPesquisaTrocarRetirada, but on a copy of
+ * `resultado` instead of the screen -- for the user's own current search,
+ * which is only being measured, never changed. Returns the corrected copy
+ * and the block indexes that offer only pickup.
+ */
+function superPesquisaResultadoSemRetirada(resultado) {
+  const corrigido = Array.isArray(resultado) ? [...resultado] : { ...resultado };
+  const soRetirada = [];
+  for (const { bloco, opcoes } of superPesquisaBlocosDeFrete()) {
+    const original = corrigido[bloco];
+    const selecionada = opcoes.find((o) => o.input.checked);
+    if (!original || !selecionada?.retirada) continue;
+    const entrega = superPesquisaMenorFreteComEntrega(opcoes);
+    if (entrega) corrigido[bloco] = { ...original, frete: entrega.valor };
+    else soRetirada.push(bloco);
+  }
+  return { resultado: corrigido, soRetirada };
+}
+
+/** Display names of the given block indexes. */
+function superPesquisaNomesDosBlocos(resultado, blocos) {
+  return blocos.map((b) => resultado?.[b]?.nomeLoja).filter(Boolean);
+}
+
+/**
+ * The site only recalculates a store's shipping a moment after its items
+ * change (a 1–1.7s timer), and every recalculation re-selects the first
+ * option -- the pickup again. Waits that out, then re-applies the
+ * correction.
+ */
+async function superPesquisaAssentarFrete() {
+  await new Promise((resolve) => setTimeout(resolve, 2000));
+  await superPesquisaEsperarFreteCalculado();
+  return superPesquisaTrocarRetirada();
+}
+
 /** Local, minimal stand-in for analise-economia.js's mostrarAviso() -- same reason. */
 function superPesquisaAviso(titulo, mensagem) {
   const modal = buildSuperPesquisaOverlay();
@@ -197,11 +333,16 @@ async function prepararSuperPesquisa() {
     }
   }
 
-  const resultado = await sendMessage({ action: "getListaResultado" });
-  if (!resultado || Object.keys(resultado).length === 0) {
+  const resultadoDaTela = await sendMessage({ action: "getListaResultado" });
+  if (!resultadoDaTela || Object.keys(resultadoDaTela).length === 0) {
     superPesquisaLog("Nenhum resultado de busca encontrado.");
     return null;
   }
+
+  // The user's own search is measured with the same shipping rule the run
+  // uses (no pickup), so before and after compare like with like.
+  const { resultado, soRetirada } = superPesquisaResultadoSemRetirada(resultadoDaTela);
+  const lojasSoRetiradaNaBase = superPesquisaNomesDosBlocos(resultado, soRetirada);
 
   const consolidado = consolidarResultado(resultado);
   if (consolidado.lojasSemFrete.length > 0) {
@@ -217,7 +358,7 @@ async function prepararSuperPesquisa() {
   // point the eventual result gets compared against (best-case-before vs.
   // best-case-after, both with reorganização already counted in).
   const baselineComReorg = calcularTotalConsolidado(consolidado) - maximizarReorganizacoes(resultado).economiaTotal;
-  return { resultado, baselineComReorg };
+  return { resultado, baselineComReorg, lojasSoRetiradaNaBase };
 }
 
 /**
@@ -262,7 +403,7 @@ function montarTargetLines(resultado, filtros) {
 async function iniciarSuperPesquisa() {
   const pronto = await prepararSuperPesquisa();
   if (!pronto) return;
-  const { resultado, baselineComReorg } = pronto;
+  const { resultado, baselineComReorg, lojasSoRetiradaNaBase } = pronto;
 
   try {
     const filtros = await sendMessage({ action: "getListaFiltros" });
@@ -272,7 +413,7 @@ async function iniciarSuperPesquisa() {
     }
 
     startSuperPesquisaKeepAlive();
-    superPesquisaState = { status: "running" };
+    superPesquisaState = { status: "running", lojasSoRetiradaNaBase };
     // Acende a seção de status da modal na hora, sem esperar a primeira
     // mensagem de progresso do background chegar.
     superPesquisaRerenderCorpos();
@@ -297,6 +438,57 @@ async function iniciarSuperPesquisa() {
 
 
 // ── Decision UI (shared by the standalone notification and the merged modal's status section) ──
+/**
+ * Small notes on how shipping was counted, under the outcome text: stores
+ * whose R$ 0,00 pickup was swapped for their cheapest paid option, stores
+ * left out for offering only pickup, and stores in the user's own current
+ * search that only offer pickup (so its total was counted without shipping
+ * for them).
+ */
+function superPesquisaNotasDeFrete(container, state) {
+  const notas = [];
+  if (state.fretesTrocados?.length) {
+    const quais = state.fretesTrocados.map((f) => `${f.nome} (R$ ${formatarMoeda(f.valor)})`).join(", ");
+    notas.push(`Frete contado pela entrega mais barata, não pela retirada no balcão: ${quais}.`);
+  }
+  const excluidas = state.lojasSoRetiradaExcluidas ?? [];
+  if (excluidas.length === 1) {
+    notas.push(
+      `${excluidas[0]} ficou de fora por só oferecer retirada no balcão. ` +
+        "Se você consegue retirar lá, pode valer a pena incluí-la na sua própria pesquisa.",
+    );
+  } else if (excluidas.length > 1) {
+    notas.push(
+      `Ficaram de fora por só oferecerem retirada no balcão: ${excluidas.join(", ")}. ` +
+        "Se você consegue retirar lá, pode valer a pena incluí-las na sua própria pesquisa.",
+    );
+  }
+  const naBase = state.lojasSoRetiradaNaBase ?? [];
+  if (naBase.length === 1) {
+    notas.push(
+      `Sua pesquisa atual inclui ${naBase[0]}, que só oferece retirada no balcão — ` +
+        "o total atual foi contado sem frete dela.",
+    );
+  } else if (naBase.length > 1) {
+    notas.push(
+      `Sua pesquisa atual inclui ${naBase.join(", ")}, que só oferecem retirada no balcão — ` +
+        "o total atual foi contado sem frete delas.",
+    );
+  }
+  if (notas.length === 0) return;
+
+  const caixa = document.createElement("div");
+  caixa.style.cssText =
+    "font-size: 12px; color: #555; line-height: 1.45; margin: 0 0 12px; padding: 8px 10px; " +
+    "background: rgba(109, 79, 196, 0.07); border-radius: 4px;";
+  for (const texto of notas) {
+    const linha = document.createElement("div");
+    linha.textContent = texto;
+    caixa.appendChild(linha);
+  }
+  container.appendChild(caixa);
+}
+
 /**
  * Builds the current state's summary text (+ decision buttons, when
  * applicable) into `container`. Used both for the standalone notification
@@ -352,6 +544,7 @@ function buildSuperPesquisaDecisionBody(container, state, { onDismiss }) {
     msg.style.cssText = "font-size: 13px; color: #666;";
     msg.textContent = "Super Pesquisa concluída — não encontramos economia melhor que a atual desta vez.";
     container.appendChild(msg);
+    superPesquisaNotasDeFrete(container, state);
     return;
   }
 
@@ -364,6 +557,7 @@ function buildSuperPesquisaDecisionBody(container, state, { onDismiss }) {
     `Identificamos que, comprando nas lojas ${listaLojas}, a compra fica em R$ ${formatarMoeda(state.totalComReorgDepois)}, ` +
     `economizando R$ ${formatarMoeda(state.economia)}.`;
   container.appendChild(resumo);
+  superPesquisaNotasDeFrete(container, state);
 
   const pergunta = document.createElement("div");
   pergunta.style.cssText = "font-size: 13px; color: #333; margin-bottom: 12px; text-align: center; font-weight: 700;";
@@ -454,6 +648,15 @@ function renderSuperPesquisaStatusSection(container) {
   });
 }
 
+// ── Pickup marking (see background.js's handleMarcarRetiradaNoBalcao) ──
+if (typeof isListaCardsPage === "function" && isListaCardsPage()) {
+  sendMessage({ action: "marcarRetiradaNoBalcao" }).then((res) => {
+    if (!res?.ok) {
+      logNotShown("Super Pesquisa — retirada no balcão", `marcação das formas de envio não instalada: ${res?.motivo ?? res?.error ?? "sem resposta"}`);
+    }
+  });
+}
+
 // ── Progress relay (from background.js, while the run is still going) ──
 /**
  * Only updates a run that's actually in progress: a late-arriving step
@@ -475,6 +678,13 @@ chrome.runtime.onMessage.addListener((request) => {
   if (request.action !== "superPesquisaResult") return;
   stopSuperPesquisaKeepAlive();
 
+  // Shipping notes shown under the outcome (see superPesquisaNotasDeFrete).
+  const notasDeFrete = {
+    lojasSoRetiradaNaBase: superPesquisaState.lojasSoRetiradaNaBase ?? [],
+    lojasSoRetiradaExcluidas: request.lojasSoRetiradaExcluidas ?? [],
+    fretesTrocados: request.fretesTrocados ?? [],
+  };
+
   if (!request.ok) {
     superPesquisaState = { status: "error", error: request.error };
     superPesquisaLog("Falhou —", request.error);
@@ -485,13 +695,14 @@ chrome.runtime.onMessage.addListener((request) => {
       totalComReorgDepois: request.totalComReorgDepois,
       economia: request.economia,
       lojas: request.lojas,
+      ...notasDeFrete,
     };
     superPesquisaLog(
       `Concluído: economia de R$ ${formatarMoeda(request.economia)} em ${request.lojas.length} loja(s) ` +
         `(total R$ ${formatarMoeda(request.totalComReorgDepois)}).`,
     );
   } else {
-    superPesquisaState = { status: "no-savings" };
+    superPesquisaState = { status: "no-savings", ...notasDeFrete };
     superPesquisaLog("Concluído — nenhuma economia melhor que a atual desta vez.");
   }
 
@@ -511,9 +722,14 @@ chrome.runtime.onMessage.addListener((request) => {
 
   superPesquisaState = { status: "idle" };
   superPesquisaRerenderCorpos(); // limpa a seção de status da modal, se estiver aberta
+  const trocados = request.fretesTrocados ?? [];
+  const notaFrete = trocados.length
+    ? ` Forma de envio trocada da retirada no balcão para a entrega mais barata em: ` +
+      `${trocados.map((f) => `${f.nome} (R$ ${formatarMoeda(f.valor)})`).join(", ")}.`
+    : "";
   superPesquisaAviso(
     "Economia aplicada",
-    `Pesquisa atualizada com as lojas encontradas — novo total: R$ ${formatarMoeda(request.totalComReorgDepois)}.`,
+    `Pesquisa atualizada com as lojas encontradas — novo total: R$ ${formatarMoeda(request.totalComReorgDepois)}.${notaFrete}`,
   );
 });
 
@@ -592,7 +808,9 @@ async function superPesquisaAplicarTodasReorganizacoes() {
     if (!melhor) break;
     superPesquisaAplicarPlanoNaTela(construirPlanoAplicacaoReorganizacao(melhor));
     totalAplicado += melhor.economia;
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    // Moving items makes the site recalculate shipping and re-select the
+    // R$ 0,00 pickup; the next round has to read the corrected values.
+    await superPesquisaAssentarFrete();
   }
   return totalAplicado;
 }
@@ -610,11 +828,24 @@ chrome.runtime.onMessage.addListener((request) => {
   if (request.action !== "superPesquisaApplyReorgAndReport") return;
   (async () => {
     await superPesquisaEsperarFreteCalculado();
-    await superPesquisaAplicarTodasReorganizacoes();
+    superPesquisaTrocarRetirada();
+    const economiaAplicada = await superPesquisaAplicarTodasReorganizacoes();
     await superPesquisaEsperarFreteCalculado();
+    const { trocados, soRetirada } = superPesquisaTrocarRetirada();
     const resultadoFinal = await sendMessage({ action: "getListaResultado" });
     const totalComReorgDepois = calcularTotalConsolidado(consolidarResultado(resultadoFinal));
-    sendMessage({ action: "superPesquisaReorgApplied", context: request.context, totalComReorgDepois });
+    if (economiaAplicada > 0 || trocados.length > 0) {
+      superPesquisaLog(`Reorganização aplicada (R$ ${formatarMoeda(economiaAplicada)}); fretes trocados agora: ${trocados.length}.`);
+    }
+    sendMessage({
+      action: "superPesquisaReorgApplied",
+      context: request.context,
+      totalComReorgDepois,
+      lojasSoRetirada: superPesquisaNomesDosBlocos(resultadoFinal, soRetirada),
+      fretesTrocados: superPesquisaFretesSemRetirada()
+        .map(({ bloco, valor }) => ({ nome: resultadoFinal?.[bloco]?.nomeLoja, valor }))
+        .filter((f) => f.nome),
+    });
   })();
   return false;
 });

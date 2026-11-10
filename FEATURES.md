@@ -141,7 +141,13 @@ página individual da carta
   resultado fica guardado enquanto a página não recarrega, então fechar e
   reabrir a modal traz ele de volta. Se o
   melhor valor encontrado não for menor que o atual, mostra apenas que não
-  achou economia, sem os três botões
+  achou economia, sem os três botões. Retirada no balcão nunca entra na
+  conta: a Super Pesquisa usa a forma de entrega mais barata de cada loja
+  (no total atual e no novo) — frete grátis de entrega continua valendo
+  R$ 0,00 — e no resultado que ela monta essa forma de entrega já vem
+  selecionada. Loja que só oferece retirada fica de fora da busca final. Uma
+  nota abaixo do resultado diz em quais lojas o frete foi trocado e quais
+  ficaram de fora
 - Alerta de frete caro — destaca em vermelho o frete de uma loja acima do
   valor configurado no painel (padrão R$ 35) e mostra um aviso temporário
   sugerindo bloquear a loja e pesquisar de novo
