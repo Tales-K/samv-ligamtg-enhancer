@@ -72,6 +72,10 @@ página individual da carta
 - Usar os últimos valores selecionados manualmente em vez dos padrões
   configurados
 - Botão "Carregar filtro padrão" — aplica os valores configurados sob demanda
+- Link "Remover Características" (roxo), à esquerda do "Detalhar
+  Características" nativo — tira de todas as linhas da lista de cards as
+  características entre colchetes (`[EDICAO=...]`, `[QUALIDADE=...]` etc.),
+  mantendo quantidade e nome
 - Segunda linha no botão "Pesquisar" do formulário de cartas e filtros,
   dizendo o alcance da busca conforme o "Tipo de Busca" selecionado:
   "Todas as Lojas" ou "Favoritas + Buscadas"

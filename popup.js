@@ -146,6 +146,7 @@ document.addEventListener("DOMContentLoaded", () => {
     "addEdhrecLigaMagicButton",
     "rememberListaFilters",
     "addLoadDefaultsButton",
+    "addClearCaracteristicasButton",
     "enableCustomStoreSearch",
     "addCopyListaButton",
     "addAnaliseEconomia",

@@ -3167,6 +3167,7 @@ const DEFAULT_SETTINGS = {
   removeGerarImagemButton: true, // whether the native "Gerar Imagem" button is removed — independent of the above, so both can be shown at once
   enableCustomStoreSearch: true, // whether the "Lojas Customizadas" section is injected into Compra por Lista
   addLoadDefaultsButton: true, // whether the "Carregar filtro padrão" button is injected into Compra por Lista
+  addClearCaracteristicasButton: true, // whether the "Remover Características" link is added next to "Detalhar Características" in Compra por Lista
   rememberListaFilters: false, // reapply the last manual filter selection on load, instead of the configured defaults
   addCopyListaButton: true, // whether the "Copiar Lista de Compras" button is injected into Compra por Lista results
   addAnaliseEconomia: true, // whether the "Análise de Economia" button (whose modal also hosts the "Super Pesquisa" button) is injected into Compra por Lista results
