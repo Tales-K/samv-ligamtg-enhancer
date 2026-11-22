@@ -6,7 +6,8 @@
  * renders them as a prints-table -- the same markup the site's own "Faces,
  * Tokens & Other Parts" box uses, so its own CSS styles the table and rows
  * for us. Each tag row also gets two small icon buttons (copy / add to the
- * search field), which are the one bit of custom styling in here.
+ * search field), which are the one bit of custom styling in here, and the
+ * tag's community description, when it has one, as a tooltip on its name.
  *
  * "Carregar Preço" triggers, on demand, the same per-card BRL price lookup
  * overlay-scryfall.js's automatic run() already performs (see
@@ -153,7 +154,17 @@ function addTagToSearchField(slug, btn) {
   flashCheckmark(btn, "search");
 }
 
-function buildTagRow(slug) {
+/**
+ * A tag's description as plain tooltip text. Tagger writes descriptions in
+ * Markdown, where a mention of another tag is a link -- "[exponential]
+ * (exponential)" -- so each link is shown as just its text.
+ */
+function tagDescriptionText(description) {
+  if (!description) return "";
+  return description.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").trim();
+}
+
+function buildTagRow({ slug, description }) {
   const tr = document.createElement("tr");
   const td = document.createElement("td");
   Object.assign(td.style, { display: "flex", alignItems: "center", paddingRight: "10px" });
@@ -161,6 +172,11 @@ function buildTagRow(slug) {
   const label = document.createElement("span");
   label.textContent = slug;
   label.style.flex = "1";
+  const tooltip = tagDescriptionText(description);
+  if (tooltip) {
+    label.title = tooltip;
+    label.style.cursor = "help";
+  }
   td.appendChild(label);
 
   // A <div>, not a <span> -- the site's own prints-table CSS reserves a
@@ -196,7 +212,7 @@ function buildTagsTable(tags) {
     tr.appendChild(td);
     tbody.appendChild(tr);
   } else {
-    tags.forEach(({ slug }) => tbody.appendChild(buildTagRow(slug)));
+    tags.forEach((tag) => tbody.appendChild(buildTagRow(tag)));
   }
   table.appendChild(tbody);
   return table;

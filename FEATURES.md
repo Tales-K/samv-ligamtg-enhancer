@@ -240,9 +240,11 @@ página individual da carta
 - Botão "Comprar no LigaMagic" — primeiro item no painel nativo "Buy This
   Card" da página individual da carta
 - Clique no preço abre a página da carta no LigaMagic (opcional)
-- Botão "Carregar Tags" — busca as tags do Scryfall Tagger e mostra numa
-  tabela, na caixa de impressões da carta, ocupando a mesma largura dos
-  demais cards daquela coluna
+- Botão "Carregar Tags" — busca as tags do Scryfall Tagger (sem abrir aba
+  nova) e mostra numa tabela, na caixa de impressões da carta, ocupando a
+  mesma largura dos demais cards daquela coluna. Passar o mouse no nome de
+  uma tag mostra a descrição dela escrita pela comunidade do Tagger (em
+  inglês), quando a tag tem uma
 - Botão "Carregar Preço" — carrega sob demanda o preço de um card específico
   que ainda não tem a coluna "R$"
 - Botão "Filtro padrão" — acrescenta um filtro configurável (ex.:

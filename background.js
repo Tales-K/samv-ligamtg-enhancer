@@ -289,7 +289,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
  *       keeping only "card" namespace tags (oracle tags and the ones they
  *       inherit from an ancestor tag) and dropping "artwork" (illustration)
  *       tags entirely
- *     → resolves with { tags: {name, slug}[] } | { error }
+ *     → resolves with { tags: {name, slug, description}[] } | { error }
  *
  *   { action: "loadPendingPrices", cards: string[] }
  *     → backfills LigaMagic prices for cards the Archidekt/Moxfield/Scryfall
@@ -424,7 +424,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return false;
   }
   if (request.action === "fetchCardTags") {
-    handleFetchCardTags(request.set, request.number).then(sendResponse);
+    handleFetchCardTags(request.set, request.number, sender.tab?.id).then(sendResponse);
     return true;
   }
   if (request.action === "loadPendingPrices") {
@@ -1275,20 +1275,45 @@ async function handleScrapeStoresFromLista(stores) {
  * service worker's own fetch() always carries the extension's
  * chrome-extension:// origin, which fails that check no matter how the
  * token was obtained -- confirmed by testing directly. Running the fetch
- * from inside an actual tagger.scryfall.com tab (via executeScript, which
+ * from inside an actual tagger.scryfall.com page (via executeScript, which
  * only the background worker can call) makes it a same-origin request, the
  * same way the page's own JavaScript would make it.
  *
- * The tab is opened in the background (not focused) purely to host that
- * request, and closed as soon as it's done.
+ * That page is loaded in a hidden iframe inside the Scryfall tab the user
+ * clicked from (see loadTaggerFrame), so no extra tab opens. Tagger pages
+ * answer with "X-Frame-Options: SAMEORIGIN", which would keep them out of
+ * a frame on scryfall.com, so a temporary session rule drops that one
+ * header for the duration of the lookup -- scoped to that tab, to frames
+ * only, to Tagger card pages, and to loads started from scryfall.com --
+ * and is removed as soon as the lookup ends. Pages opened normally keep
+ * the header. When the frame can't be used (no sender tab, or it never
+ * becomes ready), the lookup falls back to a background tab, closed as
+ * soon as it's done.
  */
-async function pollForCardTags(tabId, set, number, timeoutMs = 15_000, intervalMs = 500) {
+const TAGGER_FRAME_ID = "lgm-tagger-frame";
+// Session rule ids for the frame lookups -- unique per call so that two
+// lookups running at once (two cards on a search page) never share a rule.
+const TAGGER_FRAME_RULE_BASE = 7000;
+let taggerFrameRuleSeq = 0;
+
+function taggerCardUrl(set, number) {
+  return `https://tagger.scryfall.com/card/${encodeURIComponent(set)}/${encodeURIComponent(number)}`;
+}
+
+/**
+ * Runs the tag query in whichever frame of `tabId` is a Tagger page --
+ * the whole tab (fallback) or the hidden frame inside a Scryfall page --
+ * retrying until that page has rendered its CSRF token or `timeoutMs`
+ * elapses. Returns { taggings } | { error } | null (timed out).
+ */
+async function pollForCardTags(tabId, set, number, { allFrames = false, timeoutMs = 15_000, intervalMs = 500 } = {}) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
-      const [{ result }] = await chrome.scripting.executeScript({
-        target: { tabId },
+      const results = await chrome.scripting.executeScript({
+        target: { tabId, allFrames },
         func: async (set, number) => {
+          if (location.hostname !== "tagger.scryfall.com") return null; // the Scryfall page around the frame
           const token = document.querySelector('meta[name="csrf-token"]')?.content;
           if (!token) return null; // page hasn't rendered yet -- caller retries
 
@@ -1301,7 +1326,8 @@ async function pollForCardTags(tabId, set, number, timeoutMs = 15_000, intervalM
                     slug
                     namespace
                     status
-                    ancestorTags { name slug namespace status }
+                    description
+                    ancestorTags { name slug namespace status description }
                   }
                 }
               }
@@ -1322,13 +1348,71 @@ async function pollForCardTags(tabId, set, number, timeoutMs = 15_000, intervalM
         },
         args: [set, number],
       });
+      const result = results.map((r) => r.result).find(Boolean);
       if (result) return result;
     } catch {
-      // Tab mid-navigation or not yet scriptable -- just retry.
+      // Tab/frame mid-navigation or not yet scriptable -- just retry.
     }
     await new Promise((r) => setTimeout(r, intervalMs));
   }
   return null;
+}
+
+/** Lookup through a hidden Tagger frame inside the Scryfall tab `tabId`. Returns the same shape as pollForCardTags. */
+async function fetchCardTagsViaFrame(tabId, set, number) {
+  const ruleId = TAGGER_FRAME_RULE_BASE + (taggerFrameRuleSeq++ % 1000);
+  const frameId = `${TAGGER_FRAME_ID}-${ruleId}`;
+  try {
+    await chrome.declarativeNetRequest.updateSessionRules({
+      removeRuleIds: [ruleId],
+      addRules: [
+        {
+          id: ruleId,
+          priority: 1,
+          action: { type: "modifyHeaders", responseHeaders: [{ header: "x-frame-options", operation: "remove" }] },
+          condition: {
+            urlFilter: "|https://tagger.scryfall.com/card/",
+            resourceTypes: ["sub_frame"],
+            tabIds: [tabId],
+            initiatorDomains: ["scryfall.com"],
+          },
+        },
+      ],
+    });
+    // Created from the extension's own (isolated) world on purpose: the
+    // Scryfall page's own frame-src policy applies to frames the page itself
+    // creates, not to one added by an extension.
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      func: (id, src) => {
+        const frame = document.createElement("iframe");
+        frame.id = id;
+        frame.src = src;
+        frame.setAttribute("aria-hidden", "true");
+        frame.tabIndex = -1;
+        frame.style.cssText = "position:fixed;left:-10000px;top:0;width:10px;height:10px;border:0;visibility:hidden;";
+        document.documentElement.appendChild(frame);
+      },
+      args: [frameId, taggerCardUrl(set, number)],
+    });
+    return await pollForCardTags(tabId, set, number, { allFrames: true, timeoutMs: 10_000 });
+  } finally {
+    await chrome.scripting
+      .executeScript({ target: { tabId }, func: (id) => document.getElementById(id)?.remove(), args: [frameId] })
+      .catch(() => {});
+    await chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds: [ruleId] }).catch(() => {});
+  }
+}
+
+/** Fallback lookup through a background tab, closed as soon as it's done. */
+async function fetchCardTagsViaTab(set, number) {
+  let tab;
+  try {
+    tab = await chrome.tabs.create({ url: taggerCardUrl(set, number), active: false });
+    return await pollForCardTags(tab.id, set, number);
+  } finally {
+    if (tab) chrome.tabs.remove(tab.id).catch(() => {});
+  }
 }
 
 /**
@@ -1342,35 +1426,43 @@ async function pollForCardTags(tabId, set, number, timeoutMs = 15_000, intervalM
  * Tags carry a moderation "status" ("GOOD_STANDING", "REJECTED", etc.).
  * The Tagger site itself only displays GOOD_STANDING tags, so rejected ones
  * are filtered out here too to match what's actually shown on the card page.
+ *
+ * Each tag also carries the community's own description of it (Markdown,
+ * in English; null for many tags), passed through as-is for the overlay's
+ * tooltip.
  */
-async function handleFetchCardTags(set, number) {
-  let tab;
+async function handleFetchCardTags(set, number, tabId) {
   try {
-    tab = await chrome.tabs.create({ url: `https://tagger.scryfall.com/card/${set}/${number}`, active: false });
-    const result = await pollForCardTags(tab.id, set, number);
+    let result = null;
+    if (tabId != null) {
+      result = await fetchCardTagsViaFrame(tabId, set, number).catch((err) => {
+        console.warn("[Scryfall Tags] Busca pelo frame falhou:", err.message);
+        return null;
+      });
+      if (!result) console.warn("[Scryfall Tags] Frame do Tagger não respondeu, usando uma aba em segundo plano.");
+    }
+    if (!result) result = await fetchCardTagsViaTab(set, number);
     if (!result) return { error: "Scryfall Tagger demorou demais para responder." };
     if (result.error) return { error: result.error };
 
-    const tags = new Map(); // slug -> name, de-duplicated
-    result.taggings.forEach(({ tag }) => {
+    const tags = new Map(); // slug -> { name, description }, de-duplicated
+    const add = (tag) => {
       if (tag.namespace !== "card" || tag.status !== "GOOD_STANDING") return;
-      tags.set(tag.slug, tag.name);
-      (tag.ancestorTags ?? []).forEach((ancestor) => {
-        if (ancestor.namespace === "card" && ancestor.status === "GOOD_STANDING") {
-          tags.set(ancestor.slug, ancestor.name);
-        }
-      });
+      const existing = tags.get(tag.slug);
+      tags.set(tag.slug, { name: tag.name, description: tag.description ?? existing?.description ?? null });
+    };
+    result.taggings.forEach(({ tag }) => {
+      add(tag);
+      (tag.ancestorTags ?? []).forEach(add);
     });
 
     return {
       tags: [...tags.entries()]
-        .map(([slug, name]) => ({ slug, name }))
+        .map(([slug, { name, description }]) => ({ slug, name, description }))
         .sort((a, b) => a.slug.localeCompare(b.slug)),
     };
   } catch (err) {
     return { error: err.message };
-  } finally {
-    if (tab) chrome.tabs.remove(tab.id).catch(() => {});
   }
 }
 

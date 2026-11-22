@@ -3,7 +3,7 @@
   "name": "SAMV LigaMtg Enhancer",
   "version": "2.4.0",
   "description": "Mostra o preço em reais do LigaMagic no Moxfield, Archidekt e Scryfall e ajuda a economizar frete na Compra por Lista. Não oficial.",
-  "permissions": ["activeTab", "storage", "scripting", "contextMenus"],
+  "permissions": ["activeTab", "storage", "scripting", "contextMenus", "declarativeNetRequestWithHostAccess"],
   "host_permissions": [
     "*://*.ligamagic.com.br/*",
     "*://*.archidekt.com/*",
