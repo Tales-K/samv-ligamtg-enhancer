@@ -3362,6 +3362,8 @@ const DEFAULT_SETTINGS = {
   analiseEconomiaCache: null,
   addCarrinhoCopyButton: true, // whether the "Copiar Lista" button is injected into the cart's shopping list
   addComprasCopyButton: true, // whether the "Copiar" button is added to each order on the purchases screen
+  skipPedidosAvaliacao: true, // whether the purchases screen opens straight on the order list, past the "aguardando avaliação" box
+  addVerItensPedidoLoja: true, // whether orders placed on a store's own shop get a "Visualizar Itens" toggle
   addCardHoverLinks: true, // whether Scryfall/EDHREC buttons are added to the card-hover image tooltip
   addCardSearchContextMenu: true, // whether the "Pesquisar carta" right-click submenu is registered, browser-wide
   addEditionSearchButton: true, // whether the magnifying-glass badge is added next to edition icons on a card page

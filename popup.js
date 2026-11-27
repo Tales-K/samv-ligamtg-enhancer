@@ -154,6 +154,8 @@ document.addEventListener("DOMContentLoaded", () => {
     "addFreteCaroAlert",
     "addCarrinhoCopyButton",
     "addComprasCopyButton",
+    "skipPedidosAvaliacao",
+    "addVerItensPedidoLoja",
     "showDebugLogs",
   ];
   const selectIds = ["defaultDeckView"];

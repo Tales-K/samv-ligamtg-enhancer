@@ -177,6 +177,16 @@ página individual da carta
   carrega os itens que ainda não estiverem na página, sem abrir nem fechar os
   itens do pedido — inclusive nos pedidos feitos na loja virtual do vendedor,
   que não têm o botão "Visualizar Itens"
+- Abre direto na lista de pedidos — quando há pedidos aguardando avaliação, o
+  site mostra primeiro só essa caixa; a extensão clica sozinha em
+  "Visualizar todos meus pedidos". A avaliação continua no botão "Avaliar
+  Lojas" de cada pedido. Configurável no painel
+- "Visualizar Itens" (roxo) nos pedidos feitos na loja virtual do vendedor —
+  abaixo do "Visualizar Pedido", abre e fecha as cartas do pedido ali mesmo,
+  como o "Visualizar Itens" dos demais pedidos. Quando o resumo do pedido não
+  fecha (itens + frete acima do valor cobrado, como num desconto à vista ou
+  no PIX da loja), acrescenta a linha "Desconto:" com a diferença.
+  Configurável no painel
 
 ### Carrinho — `?view=mp/carrinho`
 - Botão "Copiar Lista" — copia os cards do carrinho no formato detalhado do
